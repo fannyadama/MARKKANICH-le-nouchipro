@@ -1,0 +1,6 @@
+{
+  "name": "Markkanich Le NouchiPro",
+  "description": "Dictionnaire interactif complet du Nouchi ivoirien de A à Z avec histoire, étymologie, traducteur intelligent, quiz, synthèse vocale et gamification.",
+  "requestFramePermissions": ["microphone", "camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
