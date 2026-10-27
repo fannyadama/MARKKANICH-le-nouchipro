@@ -1,12 +1,15 @@
 export type Category = 
   | 'all'
+  | 'argot'
+  | 'verlan'
+  | 'expressions'
   | 'personnes'
   | 'argent'
   | 'actions'
   | 'qualificatifs'
   | 'transport_lieux'
-  | 'expressions'
-  | 'musique_culture';
+  | 'musique_culture'
+  | 'vie_quotidienne';
 
 export type DifficultyLevel = 'debutant' | 'intermediaire' | 'expert';
 
@@ -59,7 +62,7 @@ export interface User {
 export type PlanId = 'free' | 'pass_express' | 'pro_vip' | 'business_api';
 export type BillingCycle = 'monthly' | 'yearly';
 export type Currency = 'XOF' | 'EUR' | 'USD';
-export type PaymentMethodType = 'paystack' | 'wave' | 'orange_money' | 'mtn_momo' | 'moov_money' | 'card' | 'paypal';
+export type PaymentMethodType = 'paystack' | 'stripe' | 'wave' | 'orange_money' | 'mtn_momo' | 'moov_money' | 'card' | 'paypal';
 
 export interface DigitalProduct {
   id: string;
@@ -113,6 +116,52 @@ export interface PaymentTransaction {
   customerName: string;
   customerPhoneOrEmail: string;
   paystackReference?: string;
+}
+
+export interface InvoiceItem {
+  description: string;
+  quantity: number;
+  unitPriceHT: number;
+  totalHT: number;
+  vatRate: number; // e.g. 18 for 18%
+  vatAmount: number;
+  totalTTC: number;
+}
+
+export interface InvoiceData {
+  invoiceNumber: string;
+  issueDate: string;
+  certifiedTimestamp: string;
+  securityHash: string;
+  status: 'paid' | 'pending';
+  paymentMethod: PaymentMethodType;
+  paymentReference: string;
+  currency: Currency;
+  subtotalHT: number;
+  vatRate: number;
+  vatTotal: number;
+  totalTTC: number;
+  seller: {
+    companyName: string;
+    tradeRegister: string;
+    taxId: string;
+    vatNumber: string;
+    address: string;
+    email: string;
+    phone: string;
+  };
+  customer: {
+    name: string;
+    companyName?: string;
+    email: string;
+    taxNumber?: string;
+    address?: string;
+    planName: string;
+    planId: PlanId;
+    billingCycle: BillingCycle;
+  };
+  items: InvoiceItem[];
+  qrCodeData: string;
 }
 
 export interface CommentReply {
@@ -174,6 +223,40 @@ export interface QuizQuestion {
   difficulty: DifficultyLevel;
   category?: Category;
   culturalNote?: string;
+  contributedBy?: string;
+  sourceWordId?: string;
+}
+
+export interface DailyQuizQuestion extends QuizQuestion {
+  contributedBy?: string;
+  sourceWordId?: string;
+  questionType: 'definition' | 'fill_in_the_blank' | 'origin' | 'synonym' | 'reverse_guess';
+}
+
+export interface DailyQuizResult {
+  date: string;
+  score: number;
+  totalQuestions: number;
+  timeSpentSeconds: number;
+  answers: {
+    questionId: string;
+    selectedOption: number;
+    correctOption: number;
+    isCorrect: boolean;
+  }[];
+}
+
+export interface DailyLeaderboardEntry {
+  id: string;
+  username: string;
+  score: number;
+  timeSeconds: number;
+  accuracy: number;
+  date: string;
+  avatar?: string;
+  isCurrentUser?: boolean;
+  streak: number;
+  rank?: number;
 }
 
 export interface Proverb {
@@ -365,3 +448,32 @@ export interface PushNotificationPayload {
   }[];
 }
 
+export interface WeeklyChallengeWord {
+  wordId: string;
+  term: string;
+  phonetic?: string;
+  definition: string;
+  frenchTranslation: string;
+  category: Category;
+  mnemonicHint: string;
+  quizPrompt: {
+    question: string;
+    options: string[];
+    correctIndex: number;
+  };
+}
+
+export interface WeeklyChallenge {
+  id: string;
+  title: string;
+  theme: string;
+  description: string;
+  weekNumber: number;
+  startDate: string;
+  endDate: string;
+  xpReward: number;
+  badgeReward: Badge;
+  words: WeeklyChallengeWord[];
+  difficulty: 'debutant' | 'intermediaire' | 'avance';
+  tag: string;
+}

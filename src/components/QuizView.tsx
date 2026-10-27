@@ -14,16 +14,30 @@ import {
   Share2,
   Flame,
   Vibrate,
-  VibrateOff
+  VibrateOff,
+  Calendar,
+  Users
 } from 'lucide-react';
 import { hapticManager } from '../utils/haptics';
+import { DailyCommunityQuizView } from './DailyCommunityQuizView';
+import { NouchiWord, User } from '../types';
 
 interface QuizViewProps {
+  words?: NouchiWord[];
+  user?: User | null;
   onOpenCertificate?: () => void;
   onOpenPricing?: () => void;
+  onOpenAddWord?: () => void;
 }
 
-export const QuizView: React.FC<QuizViewProps> = ({ onOpenCertificate, onOpenPricing }) => {
+export const QuizView: React.FC<QuizViewProps> = ({ 
+  words = [], 
+  user = null, 
+  onOpenCertificate, 
+  onOpenPricing,
+  onOpenAddWord 
+}) => {
+  const [quizMode, setQuizMode] = useState<'daily' | 'classic'>('daily');
   const [selectedDifficulty, setSelectedDifficulty] = useState<DifficultyLevel | 'all'>('all');
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
@@ -106,15 +120,59 @@ export const QuizView: React.FC<QuizViewProps> = ({ onOpenCertificate, onOpenPri
   };
 
   return (
-    <div id="quiz-view" className="max-w-3xl mx-auto space-y-6">
-      {/* Quiz Title Bento Banner */}
-      <div className="bg-[#161618] border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-500 text-xs font-bold mb-2 uppercase tracking-widest">
-              <Trophy className="w-3.5 h-3.5 text-amber-500" />
-              03. Entraîneur Interactif de Nouchi
-            </div>
+    <div id="quiz-view" className="max-w-4xl mx-auto space-y-6">
+      {/* Quiz Mode Switcher Bar */}
+      <div className="flex items-center justify-center gap-2 p-1.5 bg-[#161618] border border-slate-800 rounded-2xl max-w-xl mx-auto shadow-md">
+        <button
+          type="button"
+          onClick={() => {
+            setQuizMode('daily');
+            hapticManager.trigger('selection');
+          }}
+          className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer ${
+            quizMode === 'daily'
+              ? 'bg-amber-500 text-black shadow-md'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Sparkles className="w-4 h-4" />
+          <span>🎯 Quiz Quotidien (5 Mots du Jour)</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setQuizMode('classic');
+            hapticManager.trigger('selection');
+          }}
+          className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer ${
+            quizMode === 'classic'
+              ? 'bg-amber-500 text-black shadow-md'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Trophy className="w-4 h-4" />
+          <span>⚡ Entraînement Libre</span>
+        </button>
+      </div>
+
+      {quizMode === 'daily' ? (
+        <DailyCommunityQuizView
+          words={words}
+          user={user}
+          onOpenCertificate={onOpenCertificate}
+          onOpenAddWord={onOpenAddWord}
+        />
+      ) : (
+        <>
+          {/* Quiz Title Bento Banner */}
+          <div className="bg-[#161618] border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-500 text-xs font-bold mb-2 uppercase tracking-widest">
+                  <Trophy className="w-3.5 h-3.5 text-amber-500" />
+                  03. Entraîneur Interactif de Nouchi
+                </div>
             <h2 className="text-2xl sm:text-3xl font-extrabold text-white">
               Le Test du Vrai Nouchiman 🇨🇮
             </h2>
@@ -312,6 +370,8 @@ export const QuizView: React.FC<QuizViewProps> = ({ onOpenCertificate, onOpenPri
           </div>
         </div>
       )}
-    </div>
-  );
+    </>
+  )}
+</div>
+);
 };

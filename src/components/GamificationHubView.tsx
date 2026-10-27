@@ -21,12 +21,15 @@ import {
   FileJson,
   FileSpreadsheet,
   Bookmark,
-  Database
+  Database,
+  ArrowRight
 } from 'lucide-react';
 import { User, Badge, PREDEFINED_BADGES, NouchiWord } from '../types';
 import { exportFavoritesToJSON, exportFavoritesToCSV } from '../utils/exportHelper';
 import { hapticManager } from '../utils/haptics';
 import { Leaderboard } from './Leaderboard';
+import { WeeklyChallengesView } from './WeeklyChallengesView';
+import { WEEKLY_CHALLENGES } from '../data/weeklyChallenges';
 
 interface GamificationHubViewProps {
   user: User | null;
@@ -35,6 +38,7 @@ interface GamificationHubViewProps {
   favoriteWords?: NouchiWord[];
   onOpenExportFavorites?: () => void;
   onSelectWord?: (word: NouchiWord) => void;
+  onOpenQuiz?: () => void;
 }
 
 export const GamificationHubView: React.FC<GamificationHubViewProps> = ({
@@ -43,26 +47,43 @@ export const GamificationHubView: React.FC<GamificationHubViewProps> = ({
   onOpenAddWord,
   favoriteWords = [],
   onOpenExportFavorites,
-  onSelectWord
+  onSelectWord,
+  onOpenQuiz
 }) => {
-  const [activeTab, setActiveTab] = useState<'profile' | 'leaderboard' | 'badges' | 'missions'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'challenges' | 'leaderboard' | 'badges' | 'missions'>('profile');
   const [claimedRewardNotice, setClaimedRewardNotice] = useState<string | null>(null);
 
   // User Stats with local state
-  const [userStats, setUserStats] = useState({
-    points: 840,
-    level: 3,
-    currentStreak: 7,
-    longestStreak: 14,
-    wordsAdded: 12,
-    wordsApproved: 8,
-    likesReceived: 45,
-    commentsMade: 22,
-    wordsViewed: 164,
-    audioUploaded: 3,
-    referrals: 2,
-    earnedBadgeIds: ['b1', 'b2', 'b6', 'b8', 'b11', 'b16']
+  const [userStats, setUserStats] = useState(() => {
+    try {
+      const saved = localStorage.getItem('markkanich_user_gamification_stats');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error(e);
+    }
+    return {
+      points: 840,
+      level: 3,
+      currentStreak: 7,
+      longestStreak: 14,
+      wordsAdded: 12,
+      wordsApproved: 8,
+      likesReceived: 45,
+      commentsMade: 22,
+      wordsViewed: 164,
+      audioUploaded: 3,
+      referrals: 2,
+      earnedBadgeIds: ['b1', 'b2', 'b6', 'b8', 'b11', 'b16']
+    };
   });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('markkanich_user_gamification_stats', JSON.stringify(userStats));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [userStats]);
 
   const nextLevelPoints = Math.pow(userStats.level, 2) * 100;
   const pointsToNextLevel = Math.max(0, nextLevelPoints - userStats.points);
@@ -146,8 +167,9 @@ export const GamificationHubView: React.FC<GamificationHubViewProps> = ({
         <div className="mt-8 pt-6 border-t border-slate-800 flex items-center gap-2 overflow-x-auto scrollbar-thin">
           {[
             { id: 'profile' as const, label: 'Mon Profil & Niveau', icon: Crown },
+            { id: 'challenges' as const, label: '⚡ Défis Hebdomadaires', icon: Flame, highlight: true },
             { id: 'leaderboard' as const, label: 'Classement Top Babi', icon: Trophy },
-            { id: 'badges' as const, label: `Galerie des Badges (${userStats.earnedBadgeIds.length}/${PREDEFINED_BADGES.length})`, icon: Medal },
+            { id: 'badges' as const, label: `Galerie des Badges (${userStats.earnedBadgeIds.length}/${PREDEFINED_BADGES.length + 3})`, icon: Medal },
             { id: 'missions' as const, label: 'Missions & Barème de Points', icon: Zap }
           ].map((tab) => {
             const Icon = tab.icon;
@@ -156,14 +178,19 @@ export const GamificationHubView: React.FC<GamificationHubViewProps> = ({
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition whitespace-nowrap ${
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition whitespace-nowrap relative ${
                   isActive
                     ? 'bg-amber-500 text-black shadow-md'
-                    : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
+                    : (tab as any).highlight 
+                      ? 'bg-amber-500/10 text-amber-300 hover:text-amber-200 border border-amber-500/30'
+                      : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
                 }`}
               >
-                <Icon className="w-4 h-4" />
+                <Icon className={`w-4 h-4 ${(tab as any).highlight && !isActive ? 'text-amber-400 animate-pulse' : ''}`} />
                 <span>{tab.label}</span>
+                {(tab as any).highlight && (
+                  <span className="w-2 h-2 rounded-full bg-orange-500 animate-ping absolute top-2 right-2" />
+                )}
               </button>
             );
           })}
@@ -175,6 +202,43 @@ export const GamificationHubView: React.FC<GamificationHubViewProps> = ({
       {/* ========================================================================= */}
       {activeTab === 'profile' && (
         <div className="space-y-6">
+          {/* Daily Community Quiz Highlight Banner */}
+          {onOpenQuiz && (
+            <div className="bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-amber-500/15 border border-amber-500/40 rounded-3xl p-5 sm:p-6 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl animate-fadeIn">
+              <div className="flex items-center gap-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-amber-500 text-black font-black flex items-center justify-center text-xl shrink-0 shadow-lg shadow-amber-500/20">
+                  🎯
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                      Défi du Jour
+                    </span>
+                    <span className="text-xs text-orange-400 font-bold flex items-center gap-1">
+                      <Flame className="w-3.5 h-3.5" />
+                      Série active
+                    </span>
+                  </div>
+                  <h4 className="text-base font-black text-white mt-0.5">
+                    Quiz Quotidien de la Communauté (5 Mots)
+                  </h4>
+                  <p className="text-xs text-slate-300">
+                    Testez vos connaissances sur les mots récents ajoutés par les Môgôs et hissez-vous au classement du jour !
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={onOpenQuiz}
+                className="w-full sm:w-auto px-5 py-2.5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-xs transition shadow-lg shrink-0 flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <span>Jouer le Quiz du Jour</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
           {/* Main Level Hero Card */}
           <div className="bg-[#161618] border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl relative overflow-hidden">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
@@ -268,13 +332,13 @@ export const GamificationHubView: React.FC<GamificationHubViewProps> = ({
                 onClick={() => setActiveTab('badges')}
                 className="text-xs text-amber-400 hover:underline font-semibold flex items-center gap-1"
               >
-                <span>Voir les {PREDEFINED_BADGES.length} badges</span>
+                <span>Voir les {PREDEFINED_BADGES.length + WEEKLY_CHALLENGES.length} badges</span>
                 <ChevronRight className="w-3.5 h-3.5" />
               </button>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
-              {PREDEFINED_BADGES.filter(b => userStats.earnedBadgeIds.includes(b.id)).map((badge) => (
+              {[...PREDEFINED_BADGES, ...WEEKLY_CHALLENGES.map(c => c.badgeReward)].filter(b => userStats.earnedBadgeIds.includes(b.id)).map((badge) => (
                 <div key={badge.id} className="bg-slate-900/80 border border-amber-500/30 p-3.5 rounded-2xl text-center space-y-1.5 shadow-sm">
                   <div className="text-2xl">{badge.icon}</div>
                   <p className="text-xs font-bold text-white tracking-tight truncate">{badge.name}</p>
@@ -390,7 +454,39 @@ export const GamificationHubView: React.FC<GamificationHubViewProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* 2. CLASSEMENT TOP BABI (LEADERBOARD TOP 10) */}
+      {/* 2. DÉFIS HEBDOMADAIRES (MOTS À MAÎTRISER & BADGES EXCLUSIFS) */}
+      {/* ========================================================================= */}
+      {activeTab === 'challenges' && (
+        <WeeklyChallengesView
+          challenges={WEEKLY_CHALLENGES}
+          userEarnedBadgeIds={userStats.earnedBadgeIds}
+          onBadgeUnlocked={(badge, xpBonus) => {
+            setUserStats(prev => {
+              const updatedBadges = prev.earnedBadgeIds.includes(badge.id)
+                ? prev.earnedBadgeIds
+                : [...prev.earnedBadgeIds, badge.id];
+              const updatedPoints = prev.points + xpBonus;
+              const nextLevel = Math.floor(Math.sqrt(updatedPoints / 100)) + 1;
+              return {
+                ...prev,
+                earnedBadgeIds: updatedBadges,
+                points: updatedPoints,
+                level: nextLevel
+              };
+            });
+            showRewardToast(`🏆 Badge Exclusif débloqué : « ${badge.name} » (+${xpBonus} XP) !`);
+          }}
+          onSelectWord={(term) => {
+            if (onSelectWord) {
+              const found = favoriteWords.find(w => w.term.toLowerCase() === term.toLowerCase());
+              if (found) onSelectWord(found);
+            }
+          }}
+        />
+      )}
+
+      {/* ========================================================================= */}
+      {/* 3. CLASSEMENT TOP BABI (LEADERBOARD TOP 10) */}
       {/* ========================================================================= */}
       {activeTab === 'leaderboard' && (
         <Leaderboard 
@@ -401,12 +497,12 @@ export const GamificationHubView: React.FC<GamificationHubViewProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* 3. GALERIE DES BADGES */}
+      {/* 4. GALERIE DES BADGES */}
       {/* ========================================================================= */}
       {activeTab === 'badges' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {PREDEFINED_BADGES.map((badge) => {
+            {[...PREDEFINED_BADGES, ...WEEKLY_CHALLENGES.map(c => c.badgeReward)].map((badge) => {
               const isUnlocked = userStats.earnedBadgeIds.includes(badge.id);
 
               return (
@@ -450,7 +546,7 @@ export const GamificationHubView: React.FC<GamificationHubViewProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* 4. MISSIONS & BARÈME DE POINTS */}
+      {/* 5. MISSIONS & BARÈME DE POINTS */}
       {/* ========================================================================= */}
       {activeTab === 'missions' && (
         <div className="space-y-6">

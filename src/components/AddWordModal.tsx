@@ -235,12 +235,15 @@ export const AddWordModal: React.FC<AddWordModalProps> = ({
                 className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 transition"
               >
                 <option value="actions">⚡ Actions & Activités</option>
+                <option value="argot">🔥 Argot & Slang Rue</option>
+                <option value="verlan">🔄 Verlan & Inversions</option>
+                <option value="expressions">💬 Expressions & Idiomes</option>
                 <option value="personnes">👤 Personnes & Rôles</option>
                 <option value="argent">💰 Argent & Travail</option>
                 <option value="qualificatifs">💎 Qualificatifs & États</option>
                 <option value="transport_lieux">🚕 Transport & Quartiers</option>
-                <option value="expressions">💬 Expressions & Idiomes</option>
                 <option value="musique_culture">🎵 Culture & Ambiance</option>
+                <option value="vie_quotidienne">🍲 Vie Quotidienne & Repas</option>
               </select>
             </div>
           </div>

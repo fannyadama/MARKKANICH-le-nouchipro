@@ -27,9 +27,19 @@ import {
   BookOpen,
   Check,
   Star,
-  MessageCircle
+  MessageCircle,
+  Gift,
+  Percent,
+  Wallet,
+  FileCheck,
+  FileText
 } from 'lucide-react';
 import { hapticManager } from '../utils/haptics';
+import { SaasProfitabilitySimulator } from './SaasProfitabilitySimulator';
+import { AffiliateCashbackProgram } from './AffiliateCashbackProgram';
+import { SecurityComplianceShield } from './SecurityComplianceShield';
+import { InvoiceManagerTab } from './InvoiceManagerTab';
+import { InvoiceModal } from './InvoiceModal';
 
 interface PricingViewProps {
   user: User | null;
@@ -38,22 +48,34 @@ interface PricingViewProps {
   onOpenCertificate: () => void;
 }
 
+export type PricingSubTab = 'plans' | 'simulator' | 'affiliate' | 'invoices' | 'security';
+
 export const PricingView: React.FC<PricingViewProps> = ({
   user,
   onSelectPlan,
   onOpenApiConsole,
   onOpenCertificate
 }) => {
+  const [activePricingSubTab, setActivePricingSubTab] = useState<PricingSubTab>('plans');
   const [billingCycle, setBillingCycle] = useState<BillingCycle>('monthly');
   const [currency, setCurrency] = useState<Currency>('XOF');
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
   const [roiRequestsPerMonth, setRoiRequestsPerMonth] = useState<number>(1500);
+  const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
+  const [invoiceModalPlan, setInvoiceModalPlan] = useState<PricingPlan | null>(null);
+  const [invoiceModalCycle, setInvoiceModalCycle] = useState<BillingCycle>('yearly');
+  const [invoiceModalCurrency, setInvoiceModalCurrency] = useState<Currency>('XOF');
   const [sponsorModalOpen, setSponsorModalOpen] = useState(false);
   const [selectedSponsorPackage, setSelectedSponsorPackage] = useState(SPONSOR_PACKAGES[0]);
   const [sponsorBrandName, setSponsorBrandName] = useState('');
   const [sponsorEmail, setSponsorEmail] = useState('');
   const [sponsorSent, setSponsorSent] = useState(false);
   const [paystackStatus, setPaystackStatus] = useState<{
+    connected: boolean;
+    mode: string;
+    message?: string;
+  } | null>(null);
+  const [stripeStatus, setStripeStatus] = useState<{
     connected: boolean;
     mode: string;
     message?: string;
@@ -65,6 +87,19 @@ export const PricingView: React.FC<PricingViewProps> = ({
       .then(data => {
         if (data.success) {
           setPaystackStatus({
+            connected: data.connected,
+            mode: data.mode,
+            message: data.message
+          });
+        }
+      })
+      .catch(() => {});
+
+    fetch('/api/stripe/config')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setStripeStatus({
             connected: data.connected,
             mode: data.mode,
             message: data.message
@@ -224,8 +259,158 @@ export const PricingView: React.FC<PricingViewProps> = ({
         </div>
       </div>
 
-      {/* Pricing Cards Grid (4 Plans) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      {/* Sub-Navigation Tabs: Plans / Simulator / Affiliate / Security */}
+      <div className="flex items-center justify-center gap-2 overflow-x-auto scrollbar-thin p-1.5 bg-[#161618] border border-slate-800 rounded-2xl max-w-4xl mx-auto shadow-lg">
+        <button
+          onClick={() => {
+            setActivePricingSubTab('plans');
+            hapticManager.trigger('selection');
+          }}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+            activePricingSubTab === 'plans'
+              ? 'bg-amber-500 text-black shadow-md'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+          }`}
+        >
+          <Crown className="w-4 h-4" />
+          <span>Formules & Micro-Passes 🇨🇮</span>
+        </button>
+
+        <button
+          onClick={() => {
+            setActivePricingSubTab('simulator');
+            hapticManager.trigger('selection');
+          }}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+            activePricingSubTab === 'simulator'
+              ? 'bg-emerald-500 text-black shadow-md'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+          }`}
+        >
+          <TrendingUp className="w-4 h-4" />
+          <span>Simulateur Rentabilité SaaS 📊</span>
+        </button>
+
+        <button
+          onClick={() => {
+            setActivePricingSubTab('affiliate');
+            hapticManager.trigger('selection');
+          }}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+            activePricingSubTab === 'affiliate'
+              ? 'bg-amber-500 text-black shadow-md'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+          }`}
+        >
+          <Gift className="w-4 h-4" />
+          <span>Parrainage Môgô Cash 💸</span>
+        </button>
+
+        <button
+          onClick={() => {
+            setActivePricingSubTab('invoices');
+            hapticManager.trigger('selection');
+          }}
+          id="btn-subtab-invoices"
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+            activePricingSubTab === 'invoices'
+              ? 'bg-amber-400 text-black shadow-md font-black'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+          }`}
+        >
+          <FileText className="w-4 h-4" />
+          <span>Factures & Reçus Fiscaux 📄</span>
+        </button>
+
+        <button
+          onClick={() => {
+            setActivePricingSubTab('security');
+            hapticManager.trigger('selection');
+          }}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+            activePricingSubTab === 'security'
+              ? 'bg-cyan-500 text-black shadow-md'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+          }`}
+        >
+          <ShieldCheck className="w-4 h-4" />
+          <span>Sécurité & Agréments 🔒</span>
+        </button>
+      </div>
+
+      {/* RENDER ACTIVE SUB-TAB */}
+      {activePricingSubTab === 'simulator' && (
+        <SaasProfitabilitySimulator
+          onOpenPricingPlans={() => {
+            setActivePricingSubTab('plans');
+            hapticManager.trigger('selection');
+          }}
+          onOpenB2bModal={() => {
+            const bPlan = PRICING_PLANS.find(p => p.id === 'business_api') || PRICING_PLANS[0];
+            onSelectPlan(bPlan, 'monthly', currency);
+          }}
+        />
+      )}
+
+      {activePricingSubTab === 'affiliate' && (
+        <AffiliateCashbackProgram
+          user={user}
+          onOpenCheckoutWithPromo={(promoCode) => {
+            const defPlan = PRICING_PLANS.find(p => p.id === 'pro_vip') || PRICING_PLANS[0];
+            onSelectPlan(defPlan, 'monthly', currency);
+          }}
+        />
+      )}
+
+      {activePricingSubTab === 'invoices' && (
+        <InvoiceManagerTab
+          user={user}
+          onOpenInvoiceModal={(plan, cycle, curr) => {
+            setInvoiceModalPlan(plan);
+            setInvoiceModalCycle(cycle);
+            setInvoiceModalCurrency(curr);
+            setInvoiceModalOpen(true);
+          }}
+          onSelectPlan={onSelectPlan}
+        />
+      )}
+
+      {activePricingSubTab === 'security' && (
+        <SecurityComplianceShield />
+      )}
+
+      {activePricingSubTab === 'plans' && (
+        <>
+          {/* Flash Pass & Student Discount Callout */}
+          <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-amber-500/10 to-cyan-500/10 border border-emerald-500/30 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center flex-shrink-0">
+                <Zap className="w-5 h-5" />
+              </div>
+              <div className="text-left">
+                <p className="text-xs font-black text-white">
+                  ⚡ Formule Ultra-Accessible : <span className="text-emerald-400">Pass Flash dès 500 FCFA</span> par Mobile Money !
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  Code promo Étudiant & Apprenti : <strong className="text-amber-400 font-mono">ETUDIANT225</strong> (-25%) • Parrainage : <strong className="text-amber-400 font-mono">MOGOCASH</strong> (-20%)
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={() => {
+                  const passPlan = PRICING_PLANS.find(p => p.id === 'pass_express') || PRICING_PLANS[1];
+                  onSelectPlan(passPlan, 'yearly', currency);
+                }}
+                className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-black transition cursor-pointer shadow-md"
+              >
+                Prendre le Pass 500 FCFA
+              </button>
+            </div>
+          </div>
+
+          {/* Pricing Cards Grid (4 Plans) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {PRICING_PLANS.map((plan) => {
           const rawPrice = plan.price[billingCycle][currency];
           const formattedPrice = formatPrice(
@@ -641,27 +826,36 @@ export const PricingView: React.FC<PricingViewProps> = ({
         </div>
       )}
 
-      {/* Payment Ecosystem Ribbon */}
+      {/* Payment Ecosystem Ribbon (Paystack & Stripe) */}
       <div className="bg-[#161618] border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-5">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-4">
           <div>
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
               <span className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-[#00C3F7]/15 text-[#00C3F7] border border-[#00C3F7]/30">
                 <Zap className="w-3 h-3 text-[#00C3F7]" />
-                <span>Passerelle Paystack Intégrée 🇨🇮</span>
+                <span>Paystack Côte d'Ivoire 🇨🇮</span>
+              </span>
+              <span className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-[#635BFF]/15 text-[#887eff] border border-[#635BFF]/30">
+                <CreditCard className="w-3 h-3 text-[#635BFF]" />
+                <span>Stripe International & Diaspora 🌍</span>
               </span>
               {paystackStatus?.connected && (
                 <span className="text-[10px] bg-emerald-500/20 text-emerald-300 font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">
-                  Connecté ({paystackStatus.mode === 'live' ? 'Live' : 'Test'})
+                  Paystack ({paystackStatus.mode})
+                </span>
+              )}
+              {stripeStatus?.connected && (
+                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">
+                  Stripe ({stripeStatus.mode})
                 </span>
               )}
             </div>
             <h4 className="text-base font-bold text-white flex items-center gap-2">
               <Smartphone className="w-4 h-4 text-amber-500" />
-              <span>Moyens de Paiement Paystack Côte d'Ivoire & International</span>
+              <span>Double Passerelle : Paystack (Mobile Money) & Stripe (Cartes / Apple Pay)</span>
             </h4>
             <p className="text-xs text-slate-400 mt-0.5">
-              Wave, Orange Money, MTN MoMo, Moov Money et Cartes Visa/Mastercard chiffrés en 256-bit.
+              Wave, Orange Money, MTN MoMo, Moov Money, Apple Pay, Google Pay et Cartes Visa/Mastercard chiffrés en 256-bit.
             </p>
           </div>
           <div className="flex items-center gap-2 text-xs text-emerald-400 font-semibold bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-xl">
@@ -724,6 +918,19 @@ export const PricingView: React.FC<PricingViewProps> = ({
           })}
         </div>
       </div>
-    </div>
-  );
+    </>
+  )}
+
+  {/* Official Invoice Modal */}
+  <InvoiceModal
+    isOpen={invoiceModalOpen}
+    onClose={() => setInvoiceModalOpen(false)}
+    user={user}
+    customPlan={invoiceModalPlan}
+    customBillingCycle={invoiceModalCycle}
+    customCurrency={invoiceModalCurrency}
+  />
+</div>
+);
 };
+

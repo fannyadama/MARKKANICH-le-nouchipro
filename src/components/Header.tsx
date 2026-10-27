@@ -25,14 +25,15 @@ import {
   FileJson,
   Vibrate,
   VibrateOff,
-  Flame
+  Flame,
+  Mic
 } from 'lucide-react';
 import { notificationService } from '../services/notificationService';
 import { hapticManager } from '../utils/haptics';
 import { UserProfileCard } from './UserProfileCard';
 import { getProgressionData } from '../utils/progressionHelper';
 
-export type ActiveHeaderTab = 'dictionary' | 'history' | 'translator' | 'quiz' | 'proverbs' | 'pricing' | 'api-console' | 'admin' | 'gamification';
+export type ActiveHeaderTab = 'dictionary' | 'pronunciation' | 'gamification' | 'translator' | 'admin' | 'pricing' | 'api-console' | 'quiz' | 'proverbs' | 'history';
 
 interface HeaderProps {
   activeTab: ActiveHeaderTab;
@@ -108,6 +109,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   const tabs = [
     { id: 'dictionary' as const, label: 'Dictionnaire', icon: BookOpen, badge: `${wordCount}` },
+    { id: 'pronunciation' as const, label: 'Studio Vocal', icon: Mic, badge: '🎤 Score IA' },
     { id: 'gamification' as const, label: 'Passeport & Niveaux', icon: Trophy, badge: '🔥 Lvl' },
     { id: 'translator' as const, label: 'Traducteur IA', icon: Sparkles, badge: 'Babi' },
     { id: 'admin' as const, label: 'Admin & Modération', icon: ShieldCheck, badge: '📊 Dashboard' },

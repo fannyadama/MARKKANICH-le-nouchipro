@@ -148,7 +148,18 @@ export const PROMO_CODES: Record<string, { discountPercent: number; label: strin
   'BABI2026': { discountPercent: 20, label: 'Offre Bienvenue Abidjan (-20%)' },
   'WAVE225': { discountPercent: 15, label: 'Réduction Spéciale Wave (-15%)' },
   'NOUCHIPRO': { discountPercent: 25, label: 'Super Promo Membre (-25%)' },
-  'VIPFLASH': { discountPercent: 30, label: 'Vente Flash VIP (-30%)' }
+  'VIPFLASH': { discountPercent: 30, label: 'Vente Flash VIP (-30%)' },
+  'MOGOCASH': { discountPercent: 20, label: 'Parrainage Môgô Sûr (-20%)' },
+  'ETUDIANT225': { discountPercent: 25, label: 'Tarif Spécial Étudiant & Apprenti (-25%)' },
+  'DIASPORA': { discountPercent: 15, label: 'Offre Spéciale Diaspora (-15%)' }
+};
+
+export const AFFILIATE_CONFIG = {
+  commissionPercent: 25, // 25% of all referred sales paid directly in Mobile Money
+  cookieDurationDays: 30,
+  minPayoutXOF: 5000,
+  payoutMethods: ['Wave 🇨🇮', 'Orange Money 🇨🇮', 'MTN MoMo 🇨🇮', 'Virement Bancaire'],
+  avgEarningsPerUserXOF: 12500, // based on 10 referrals taking Pass or VIP
 };
 
 export const SPONSOR_PACKAGES = [
@@ -181,6 +192,15 @@ export const PAYMENT_METHODS = [
     description: 'Paiement direct sécurisé : Wave, Orange Money, MTN, Moov et Cartes Bancaires',
     iconColor: 'bg-[#00C3F7] text-black font-black',
     accentColor: '#00C3F7'
+  },
+  {
+    id: 'stripe' as const,
+    name: 'Stripe Checkout (International & Diaspora 🌍)',
+    category: 'stripe',
+    badge: 'Apple Pay / CB / GPay 💳',
+    description: 'Paiement carte bancaire international, Apple Pay et Google Pay chiffré 3D-Secure',
+    iconColor: 'bg-[#635BFF] text-white font-bold',
+    accentColor: '#635BFF'
   },
   {
     id: 'wave' as const,
@@ -229,7 +249,7 @@ export const PAYMENT_METHODS = [
   },
   {
     id: 'paypal' as const,
-    name: 'PayPal / Stripe Global',
+    name: 'PayPal Global',
     category: 'international',
     badge: 'Diaspora',
     description: 'Pour la diaspora ivoirienne en Europe, USA et Canada',

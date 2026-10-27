@@ -20,9 +20,11 @@ import {
   Printer,
   AlertCircle,
   Maximize2,
-  CheckCircle
+  CheckCircle,
+  FileText
 } from 'lucide-react';
 import { hapticManager } from '../utils/haptics';
+import { InvoiceModal } from './InvoiceModal';
 
 interface CheckoutModalProps {
   isOpen: boolean;
@@ -57,12 +59,19 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [copiedRef, setCopiedRef] = useState(false);
   const [showEmbedIframe, setShowEmbedIframe] = useState(false);
   const [simulationStep, setSimulationStep] = useState(1);
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
 
-  // Paystack Integration States
+  // Paystack & Stripe Integration States
   const [paystackConfig, setPaystackConfig] = useState<{
     connected: boolean;
     mode: 'live' | 'test' | 'sandbox';
     publicKey?: string | null;
+    message?: string;
+  } | null>(null);
+  const [stripeConfig, setStripeConfig] = useState<{
+    connected: boolean;
+    mode: 'live' | 'test' | 'sandbox';
+    publishableKey?: string | null;
     message?: string;
   } | null>(null);
   const [paystackAuthUrl, setPaystackAuthUrl] = useState<string | null>(null);
@@ -71,7 +80,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
   const pollingIntervalRef = useRef<any>(null);
 
-  // Fetch Paystack configuration status when modal opens
+  // Fetch Paystack & Stripe configuration status when modal opens
   useEffect(() => {
     if (isOpen) {
       setFormError(null);
@@ -90,6 +99,20 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
           }
         })
         .catch(err => console.error('Erreur chargement config Paystack:', err));
+
+      fetch('/api/stripe/config')
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            setStripeConfig({
+              connected: data.connected,
+              mode: data.mode,
+              publishableKey: data.publishableKey,
+              message: data.message
+            });
+          }
+        })
+        .catch(err => console.error('Erreur chargement config Stripe:', err));
     } else {
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
@@ -189,12 +212,17 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     setIsCheckingStatus(true);
     setVerificationError(null);
     try {
-      const res = await fetch(`/api/paystack/verify/${encodeURIComponent(refToCheck)}`);
+      const isStripe = selectedMethod === 'stripe' || refToCheck.startsWith('cs_');
+      const verifyEndpoint = isStripe
+        ? `/api/stripe/verify/${encodeURIComponent(refToCheck)}`
+        : `/api/paystack/verify/${encodeURIComponent(refToCheck)}`;
+
+      const res = await fetch(verifyEndpoint);
       const data = await res.json();
       if (data.success && data.verified) {
         completePaymentFlow(refToCheck);
       } else {
-        setVerificationError(data.message || 'Paiement en cours de traitement par Paystack. Veuillez finaliser la transaction.');
+        setVerificationError(data.message || `Paiement en cours de traitement par ${isStripe ? 'Stripe' : 'Paystack'}. Veuillez finaliser la transaction.`);
       }
     } catch (err: any) {
       setVerificationError('Erreur de communication avec le serveur.');
@@ -219,7 +247,61 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
     try {
       const clientEmail = customerContact.trim() || (phoneNumber ? `${phoneNumber.replace(/\D/g, '')}@nouchipro.ci` : 'client@nouchipro.ci');
-      
+
+      // 1. STRIPE CHECKOUT FLOW
+      if (selectedMethod === 'stripe') {
+        const response = await fetch('/api/stripe/create-checkout-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: clientEmail,
+            amount: rawPrice,
+            currency: currency === 'XOF' ? 'EUR' : currency,
+            planId: selectedPlan.id,
+            billingCycle: billingCycle,
+            customerName: customerName.trim(),
+            successUrl: window.location.href
+          })
+        });
+
+        const stripeData = await response.json();
+
+        if (!stripeData.success) {
+          setFormError(stripeData.message || "Échec de l'initialisation Stripe");
+          setIsProcessing(false);
+          setStep('details');
+          return;
+        }
+
+        setActiveReference(stripeData.sessionId);
+
+        if (stripeData.checkoutUrl) {
+          setPaystackAuthUrl(stripeData.checkoutUrl);
+          setStep('authenticating');
+
+          try {
+            window.open(stripeData.checkoutUrl, '_blank');
+          } catch {
+            setShowEmbedIframe(true);
+          }
+
+          if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = setInterval(() => {
+            checkTransactionStatus(stripeData.sessionId);
+          }, 3500);
+        } else {
+          // Interactive demonstration / sandbox simulation flow
+          setStep('authenticating');
+          setTimeout(() => setSimulationStep(2), 900);
+          setTimeout(() => setSimulationStep(3), 1800);
+          setTimeout(() => {
+            completePaymentFlow(stripeData.sessionId);
+          }, 2700);
+        }
+        return;
+      }
+
+      // 2. PAYSTACK / MOBILE MONEY FLOW
       const response = await fetch('/api/paystack/initialize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -287,20 +369,17 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
         setPaystackAuthUrl(initData.authorizationUrl);
         setStep('authenticating');
 
-        // Attempt popup window (guarded against browser blocks)
         try {
           window.open(initData.authorizationUrl, '_blank');
         } catch {
           setShowEmbedIframe(true);
         }
 
-        // Start background polling to verify payment automatically
         if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
         pollingIntervalRef.current = setInterval(() => {
           checkTransactionStatus(initData.reference);
         }, 3500);
       } else {
-        // Interactive demonstration / sandbox simulation flow
         setStep('authenticating');
         setTimeout(() => setSimulationStep(2), 900);
         setTimeout(() => setSimulationStep(3), 1800);
@@ -581,147 +660,161 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
         )}
 
         {/* Step: Authenticating Mobile Money / Paystack */}
-        {step === 'authenticating' && (
-          <div className="py-6 text-center space-y-6">
-            <div className="w-16 h-16 mx-auto rounded-full bg-[#00C3F7]/10 border border-[#00C3F7]/30 flex items-center justify-center text-[#00C3F7] animate-pulse">
-              <Loader2 className="w-8 h-8 animate-spin" />
-            </div>
+        {step === 'authenticating' && (() => {
+          const isStripe = selectedMethod === 'stripe' || (activeReference?.startsWith('cs_') ?? false);
+          const brandColor = isStripe ? '#635BFF' : '#00C3F7';
+          const brandName = isStripe ? 'Stripe International' : 'Paystack CI';
 
-            <div>
-              <div className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-[#00C3F7]/15 border border-[#00C3F7]/30 text-[#00C3F7] text-[11px] font-black uppercase tracking-wider mb-2">
-                <Zap className="w-3.5 h-3.5" />
-                <span>Passerelle Paystack Active</span>
+          return (
+            <div className="py-6 text-center space-y-6">
+              <div 
+                className="w-16 h-16 mx-auto rounded-full flex items-center justify-center animate-pulse"
+                style={{ backgroundColor: `${brandColor}20`, border: `1px solid ${brandColor}60`, color: brandColor }}
+              >
+                <Loader2 className="w-8 h-8 animate-spin" />
               </div>
-              <h3 className="text-xl font-bold text-white">Traitement sécurisé de la transaction...</h3>
-              <p className="text-xs text-slate-400 max-w-md mx-auto mt-2 leading-relaxed">
-                Montant : <strong className="text-white">{formattedPrice}</strong> pour la formule <strong className="text-amber-400">{selectedPlan.name}</strong>.
-              </p>
-              {activeReference && (
-                <p className="text-[11px] font-mono text-slate-400 mt-1.5 flex items-center justify-center gap-1">
-                  <span>Réf:</span>
-                  <span className="text-[#00C3F7] font-semibold">{activeReference}</span>
-                </p>
-              )}
-            </div>
 
-            {/* If Paystack returned an authorization URL (Live or Test Mode) */}
-            {paystackAuthUrl && (
-              <div className="space-y-3 max-w-md mx-auto p-4 rounded-2xl bg-slate-900 border border-slate-800 text-left">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-bold text-slate-200">
-                    Guichet Paystack Ouvert :
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setShowEmbedIframe(!showEmbedIframe)}
-                    className="text-[11px] text-[#00C3F7] hover:underline font-semibold cursor-pointer flex items-center gap-1"
-                  >
-                    <Maximize2 className="w-3 h-3" />
-                    <span>{showEmbedIframe ? 'Masquer guichet intégré' : 'Afficher ici même'}</span>
-                  </button>
+              <div>
+                <div 
+                  className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider mb-2"
+                  style={{ backgroundColor: `${brandColor}20`, border: `1px solid ${brandColor}50`, color: brandColor }}
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                  <span>Passerelle {brandName} Active</span>
                 </div>
-
-                {showEmbedIframe ? (
-                  <div className="w-full h-80 rounded-xl overflow-hidden border border-slate-800 bg-white shadow-inner">
-                    <iframe 
-                      src={paystackAuthUrl}
-                      title="Guichet Paystack"
-                      className="w-full h-full border-0"
-                    />
-                  </div>
-                ) : (
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    Si la fenêtre sécurisée Paystack ne s’est pas ouverte automatiquement, cliquez sur le bouton ci-dessous :
+                <h3 className="text-xl font-bold text-white">Traitement sécurisé de la transaction...</h3>
+                <p className="text-xs text-slate-400 max-w-md mx-auto mt-2 leading-relaxed">
+                  Montant : <strong className="text-white">{formattedPrice}</strong> pour la formule <strong className="text-amber-400">{selectedPlan.name}</strong>.
+                </p>
+                {activeReference && (
+                  <p className="text-[11px] font-mono text-slate-400 mt-1.5 flex items-center justify-center gap-1">
+                    <span>Réf:</span>
+                    <span className="font-semibold" style={{ color: brandColor }}>{activeReference}</span>
                   </p>
                 )}
-
-                <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
-                  <a
-                    href={paystackAuthUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex-1 py-2.5 px-4 rounded-xl bg-[#00C3F7] hover:bg-[#00b0df] text-black font-extrabold text-xs flex items-center justify-center gap-1.5 transition shadow-md cursor-pointer"
-                  >
-                    <span>Ouvrir Paystack</span>
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
-                  <button
-                    type="button"
-                    onClick={() => activeReference && checkTransactionStatus(activeReference)}
-                    disabled={isCheckingStatus}
-                    className="py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition border border-slate-700 cursor-pointer disabled:opacity-50"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isCheckingStatus ? 'animate-spin' : ''}`} />
-                    <span>Vérifier le statut</span>
-                  </button>
-                </div>
               </div>
-            )}
 
-            {/* If in Demonstration / Sandbox Mode */}
-            {!paystackAuthUrl && (
-              <div className="space-y-3 max-w-md mx-auto p-4 rounded-2xl bg-slate-900 border border-slate-800 text-left">
-                <div className="flex items-center justify-between text-xs text-slate-300">
-                  <span className="font-bold flex items-center gap-1.5 text-amber-400">
-                    <Sparkles className="w-4 h-4" />
-                    <span>Simulateur Paystack CI</span>
-                  </span>
-                  <span className="text-[10px] font-mono text-slate-500">Mode Sandbox</span>
-                </div>
+              {/* If gateway returned an authorization / checkout URL (Live or Test Mode) */}
+              {paystackAuthUrl && (
+                <div className="space-y-3 max-w-md mx-auto p-4 rounded-2xl bg-slate-900 border border-slate-800 text-left">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-bold text-slate-200">
+                      Guichet {brandName} Ouvert :
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setShowEmbedIframe(!showEmbedIframe)}
+                      className="text-[11px] hover:underline font-semibold cursor-pointer flex items-center gap-1"
+                      style={{ color: brandColor }}
+                    >
+                      <Maximize2 className="w-3 h-3" />
+                      <span>{showEmbedIframe ? 'Masquer guichet intégré' : 'Afficher ici même'}</span>
+                    </button>
+                  </div>
 
-                <div className="space-y-2 pt-1 text-xs">
-                  <div className="flex items-center gap-2.5 text-slate-300">
-                    <CheckCircle className={`w-4 h-4 ${simulationStep >= 1 ? 'text-emerald-400' : 'text-slate-600'}`} />
-                    <span>1. Initialisation transaction Paystack ({formattedPrice})</span>
-                  </div>
-                  <div className="flex items-center gap-2.5 text-slate-300">
-                    {simulationStep >= 2 ? (
-                      <CheckCircle className="w-4 h-4 text-emerald-400" />
-                    ) : (
-                      <Loader2 className="w-4 h-4 text-amber-400 animate-spin" />
-                    )}
-                    <span>2. Autorisation bancaire ou Mobile Money</span>
-                  </div>
-                  <div className="flex items-center gap-2.5 text-slate-300">
-                    {simulationStep >= 3 ? (
-                      <CheckCircle className="w-4 h-4 text-emerald-400" />
-                    ) : (
-                      <div className="w-4 h-4 rounded-full border border-slate-700" />
-                    )}
-                    <span>3. Validation et activation immédiate des droits VIP</span>
-                  </div>
-                </div>
+                  {showEmbedIframe ? (
+                    <div className="w-full h-80 rounded-xl overflow-hidden border border-slate-800 bg-white shadow-inner">
+                      <iframe 
+                        src={paystackAuthUrl}
+                        title={`Guichet ${brandName}`}
+                        className="w-full h-full border-0"
+                      />
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      Si la fenêtre sécurisée {brandName} ne s’est pas ouverte automatiquement, cliquez sur le bouton ci-dessous :
+                    </p>
+                  )}
 
-                <div className="pt-2">
-                  <button
-                    type="button"
-                    onClick={() => activeReference && completePaymentFlow(activeReference)}
-                    className="w-full py-2 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    <span>Valider immédiatement la simulation</span>
-                  </button>
+                  <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
+                    <a
+                      href={paystackAuthUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex-1 py-2.5 px-4 rounded-xl text-white font-extrabold text-xs flex items-center justify-center gap-1.5 transition shadow-md cursor-pointer"
+                      style={{ backgroundColor: brandColor }}
+                    >
+                      <span>Ouvrir {isStripe ? 'Stripe Checkout' : 'Paystack'}</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => activeReference && checkTransactionStatus(activeReference)}
+                      disabled={isCheckingStatus}
+                      className="py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition border border-slate-700 cursor-pointer disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isCheckingStatus ? 'animate-spin' : ''}`} />
+                      <span>Vérifier le statut</span>
+                    </button>
+                  </div>
                 </div>
+              )}
+
+              {/* If in Demonstration / Sandbox Mode */}
+              {!paystackAuthUrl && (
+                <div className="space-y-3 max-w-md mx-auto p-4 rounded-2xl bg-slate-900 border border-slate-800 text-left">
+                  <div className="flex items-center justify-between text-xs text-slate-300">
+                    <span className="font-bold flex items-center gap-1.5 text-amber-400">
+                      <Sparkles className="w-4 h-4" />
+                      <span>Simulateur {brandName}</span>
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-500">Mode Sandbox</span>
+                  </div>
+
+                  <div className="space-y-2 pt-1 text-xs">
+                    <div className="flex items-center gap-2.5 text-slate-300">
+                      <CheckCircle className={`w-4 h-4 ${simulationStep >= 1 ? 'text-emerald-400' : 'text-slate-600'}`} />
+                      <span>1. Initialisation transaction {isStripe ? 'Stripe Checkout' : 'Paystack'} ({formattedPrice})</span>
+                    </div>
+                    <div className="flex items-center gap-2.5 text-slate-300">
+                      {simulationStep >= 2 ? (
+                        <CheckCircle className="w-4 h-4 text-emerald-400" />
+                      ) : (
+                        <Loader2 className="w-4 h-4 text-amber-400 animate-spin" />
+                      )}
+                      <span>2. {isStripe ? 'Validation 3D-Secure & Token CB chiffré AES-256' : 'Autorisation bancaire ou Mobile Money Wave/Orange'}</span>
+                    </div>
+                    <div className="flex items-center gap-2.5 text-slate-300">
+                      {simulationStep >= 3 ? (
+                        <CheckCircle className="w-4 h-4 text-emerald-400" />
+                      ) : (
+                        <div className="w-4 h-4 rounded-full border border-slate-700" />
+                      )}
+                      <span>3. Validation et activation immédiate des privilèges VIP Nouchiman</span>
+                    </div>
+                  </div>
+
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => activeReference && completePaymentFlow(activeReference)}
+                      className="w-full py-2 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Valider immédiatement la simulation {brandName}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {verificationError && (
+                <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 max-w-md mx-auto text-left">
+                  {verificationError}
+                </p>
+              )}
+
+              <div className="flex items-center justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setStep('details')}
+                  className="text-xs text-slate-500 hover:text-slate-300 transition underline cursor-pointer"
+                >
+                  Retour au formulaire
+                </button>
               </div>
-            )}
-
-            {verificationError && (
-              <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 max-w-md mx-auto text-left">
-                {verificationError}
-              </p>
-            )}
-
-            <div className="flex items-center justify-center gap-3">
-              <button
-                type="button"
-                onClick={() => setStep('details')}
-                className="text-xs text-slate-500 hover:text-slate-300 transition underline cursor-pointer"
-              >
-                Retour au formulaire
-              </button>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Step: Success Invoice & Activation */}
         {step === 'success' && completedTransaction && (
@@ -784,25 +877,48 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-3">
+            <div className="space-y-2.5">
               <button
                 type="button"
-                onClick={() => window.print()}
-                className="py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition border border-slate-700 flex items-center justify-center gap-2 cursor-pointer"
+                id="btn-download-pdf-invoice-checkout"
+                onClick={() => setShowInvoiceModal(true)}
+                className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-extrabold text-xs transition shadow-lg flex items-center justify-center gap-2 cursor-pointer"
               >
-                <Printer className="w-4 h-4" />
-                <span>Imprimer la quittance</span>
+                <FileText className="w-4 h-4" />
+                <span>Télécharger la Facture Fiscale PDF (TVA 18% & QR Code)</span>
               </button>
-              <button
-                onClick={handleFinish}
-                className="flex-1 py-3 px-6 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-sm transition shadow-lg cursor-pointer"
-              >
-                Accéder à mes fonctionnalités VIP & Découvrir
-              </button>
+
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition border border-slate-700 flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>Imprimer la quittance</span>
+                </button>
+                <button
+                  onClick={handleFinish}
+                  className="flex-1 py-3 px-6 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-sm transition shadow-lg cursor-pointer"
+                >
+                  Accéder à mes fonctionnalités VIP & Découvrir
+                </button>
+              </div>
             </div>
           </div>
         )}
       </div>
+
+      {/* Official Certified Invoice Modal */}
+      <InvoiceModal
+        isOpen={showInvoiceModal}
+        onClose={() => setShowInvoiceModal(false)}
+        user={user}
+        transaction={completedTransaction}
+        customPlan={selectedPlan}
+        customBillingCycle={billingCycle}
+        customCurrency={currency}
+      />
     </div>
   );
 };

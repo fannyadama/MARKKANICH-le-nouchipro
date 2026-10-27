@@ -19,7 +19,9 @@ import { AddWordModal } from './components/AddWordModal';
 import { DailyWordNotificationModal } from './components/DailyWordNotificationModal';
 import { ShareAppModal } from './components/ShareAppModal';
 import { ExportFavoritesModal } from './components/ExportFavoritesModal';
+import { StoryCardModal } from './components/StoryCardModal';
 import { OfflineStatusBanner } from './components/OfflineStatusBanner';
+import { PronunciationStudioView } from './components/PronunciationStudioView';
 import { authAPI, wordsAPI, INITIAL_SEED_COMMENTS } from './services/api';
 import { notificationService } from './services/notificationService';
 import { getDeterministicDailyWord } from './utils/dailyWordHelper';
@@ -43,6 +45,7 @@ import {
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveHeaderTab>('dictionary');
   const [selectedWord, setSelectedWord] = useState<NouchiWord | null>(null);
+  const [pronunciationWord, setPronunciationWord] = useState<NouchiWord | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isAddWordOpen, setIsAddWordOpen] = useState(false);
@@ -53,6 +56,7 @@ export default function App() {
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isExportFavoritesOpen, setIsExportFavoritesOpen] = useState(false);
+  const [storyWord, setStoryWord] = useState<NouchiWord | null>(null);
 
   // Monetization modals state
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
@@ -396,6 +400,14 @@ export default function App() {
     setTimeout(() => setToastMessage(null), 5000);
   };
 
+  const handleStartPronunciationTest = (word?: NouchiWord) => {
+    if (word) {
+      setPronunciationWord(word);
+    }
+    setActiveTab('pronunciation');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const commentsCountMap = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const id in commentsMap) {
@@ -467,6 +479,19 @@ export default function App() {
             onDeleteWord={handleDeleteWord}
             onOpenNotificationModal={() => setIsNotificationModalOpen(true)}
             onOpenExportFavorites={() => setIsExportFavoritesOpen(true)}
+            onOpenStoryCard={(w) => setStoryWord(w)}
+          />
+        )}
+
+        {activeTab === 'pronunciation' && (
+          <PronunciationStudioView
+            words={allWords}
+            initialWord={pronunciationWord}
+            user={user}
+            onOpenPricing={() => setActiveTab('pricing')}
+            onWordPracticed={(wordId, score) => {
+              showToast(`Défi vocal terminé avec ${score}/100 !`);
+            }}
           />
         )}
 
@@ -487,6 +512,7 @@ export default function App() {
             favoriteWords={favoriteWords}
             onOpenExportFavorites={() => setIsExportFavoritesOpen(true)}
             onSelectWord={handleSelectWord}
+            onOpenQuiz={() => setActiveTab('quiz')}
           />
         )}
 
@@ -514,8 +540,14 @@ export default function App() {
 
         {activeTab === 'quiz' && (
           <QuizView
+            words={allWords}
+            user={user}
             onOpenCertificate={() => setIsCertificateOpen(true)}
             onOpenPricing={() => setActiveTab('pricing')}
+            onOpenAddWord={() => {
+              setEditingWord(null);
+              setIsAddWordOpen(true);
+            }}
           />
         )}
 
@@ -556,6 +588,8 @@ export default function App() {
         likesCount={selectedWord ? (likesMap[selectedWord.id]?.length || 0) : 0}
         onEditWord={handleEditWord}
         onDeleteWord={handleDeleteWord}
+        onTestPronunciation={handleStartPronunciationTest}
+        onOpenStoryCard={(w) => setStoryWord(w)}
       />
 
       {/* Auth Modal */}
@@ -604,6 +638,14 @@ export default function App() {
         user={user}
         onSelectWord={handleSelectWord}
         onAddSampleFavorites={handleAddSampleFavorites}
+      />
+
+      {/* Story & Status Visual Card HD Modal */}
+      <StoryCardModal
+        isOpen={!!storyWord}
+        onClose={() => setStoryWord(null)}
+        word={storyWord}
+        user={user}
       />
 
       {/* Bento-Styled Footer */}

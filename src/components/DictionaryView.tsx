@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { NouchiWord, Category, User } from '../types';
-import { CATEGORIES_CONFIG } from '../data/nouchiDictionary';
+import { CATEGORIES_CONFIG, isWordInNouchiCategory } from '../data/nouchiDictionary';
 import { speakWord } from '../utils/speech';
 import { WordOfTheDayView } from './WordOfTheDayView';
 import { 
@@ -28,8 +28,12 @@ import {
   History,
   Clock,
   RotateCcw,
-  CornerDownLeft
+  CornerDownLeft,
+  Mic,
+  MicOff,
+  Loader2
 } from 'lucide-react';
+import { hapticManager } from '../utils/haptics';
 
 interface DictionaryViewProps {
   words: NouchiWord[];
@@ -45,6 +49,7 @@ interface DictionaryViewProps {
   onDeleteWord?: (wordId: string) => void;
   onOpenNotificationModal?: () => void;
   onOpenExportFavorites?: () => void;
+  onOpenStoryCard?: (word: NouchiWord) => void;
 }
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
@@ -62,7 +67,8 @@ export const DictionaryView: React.FC<DictionaryViewProps> = ({
   onEditWord,
   onDeleteWord,
   onOpenNotificationModal,
-  onOpenExportFavorites
+  onOpenExportFavorites,
+  onOpenStoryCard
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedLetter, setSelectedLetter] = useState<string | null>(null);
@@ -71,6 +77,110 @@ export const DictionaryView: React.FC<DictionaryViewProps> = ({
   const [onlyBookmarks, setOnlyBookmarks] = useState(false);
   const [onlyCommunity, setOnlyCommunity] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
+
+  // Web Speech API Voice Search State
+  const [isListening, setIsListening] = useState(false);
+  const [speechError, setSpeechError] = useState<string | null>(null);
+  const [spokenTranscript, setSpokenTranscript] = useState<string | null>(null);
+  const recognitionRef = useRef<any>(null);
+
+  // Initialize SpeechRecognition on mount
+  useEffect(() => {
+    const SpeechRecognition = typeof window !== 'undefined' 
+      ? ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)
+      : null;
+
+    if (SpeechRecognition) {
+      try {
+        const recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = true;
+        recognition.lang = 'fr-FR';
+
+        recognition.onstart = () => {
+          setIsListening(true);
+          setSpeechError(null);
+          setSpokenTranscript('');
+          hapticManager.trigger('selection');
+        };
+
+        recognition.onresult = (event: any) => {
+          const current = event.resultIndex;
+          const transcript = event.results[current][0].transcript;
+          setSpokenTranscript(transcript);
+
+          if (event.results[current].isFinal) {
+            const cleanTranscript = transcript.trim().replace(/[.,!?;:]+$/, '');
+            setSearchTerm(cleanTranscript);
+            saveSearchTerm(cleanTranscript);
+            setShowSuggestions(cleanTranscript.length >= 1);
+            hapticManager.trigger('quiz_correct');
+          }
+        };
+
+        recognition.onerror = (event: any) => {
+          console.warn('Speech recognition error:', event.error);
+          if (event.error === 'not-allowed') {
+            setSpeechError('Microphone non autorisé. Veuillez activer l’accès au micro dans votre navigateur.');
+          } else if (event.error === 'no-speech') {
+            setSpeechError('Aucune voix détectée. Veuillez parler plus distinctement.');
+          } else {
+            setSpeechError(`Erreur vocale (${event.error}). Réessayez.`);
+          }
+          setIsListening(false);
+        };
+
+        recognition.onend = () => {
+          setIsListening(false);
+        };
+
+        recognitionRef.current = recognition;
+      } catch (e) {
+        console.warn('Erreur initialisation SpeechRecognition:', e);
+      }
+    }
+
+    return () => {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch {}
+      }
+    };
+  }, []);
+
+  const toggleVoiceSearch = () => {
+    setSpeechError(null);
+    const SpeechRecognition = typeof window !== 'undefined' 
+      ? ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)
+      : null;
+
+    if (!SpeechRecognition) {
+      setSpeechError("La recherche vocale n'est pas supportée par ce navigateur. Utilisez Chrome, Safari ou Edge.");
+      return;
+    }
+
+    if (isListening) {
+      try {
+        recognitionRef.current?.stop();
+      } catch {}
+      setIsListening(false);
+    } else {
+      try {
+        recognitionRef.current?.start();
+      } catch (err: any) {
+        console.warn('Recognition start error:', err);
+        try {
+          recognitionRef.current?.abort();
+          setTimeout(() => {
+            try {
+              recognitionRef.current?.start();
+            } catch {}
+          }, 200);
+        } catch {}
+      }
+    }
+  };
 
   // 5 Dernières recherches (LocalStorage)
   const LOCAL_STORAGE_RECENT_SEARCHES_KEY = 'nouchipro_recent_searches_v1';
@@ -270,8 +380,8 @@ export const DictionaryView: React.FC<DictionaryViewProps> = ({
         return false;
       }
 
-      // Category filter
-      if (selectedCategory !== 'all' && word.category !== selectedCategory) {
+      // Category & Linguistic Register filter (argot, verlan, expressions, etc.)
+      if (selectedCategory !== 'all' && !isWordInNouchiCategory(word, selectedCategory)) {
         return false;
       }
 
@@ -388,6 +498,7 @@ export const DictionaryView: React.FC<DictionaryViewProps> = ({
           onBookmarkToggle={onToggleBookmark}
           isBookmarked={false}
           onOpenNotificationModal={onOpenNotificationModal}
+          onOpenStoryCard={onOpenStoryCard}
         />
 
         {/* Bento Card 3: Action & Community Stats */}
@@ -520,21 +631,127 @@ export const DictionaryView: React.FC<DictionaryViewProps> = ({
                 }
               }}
               placeholder="Chercher un mot (ex: Enjailler, Kpata, Boucantier, Môgô...)"
-              className="search-input w-full pl-11 pr-10 py-3 bg-slate-900 border border-slate-700/80 rounded-2xl text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition-all"
+              className="search-input w-full pl-11 pr-24 py-3 bg-slate-900 border border-slate-700/80 rounded-2xl text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition-all"
               autoComplete="off"
             />
-            {searchTerm && (
+
+            {/* Right Buttons: Clear & Voice Search Mic */}
+            <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchTerm('');
+                    setShowSuggestions(false);
+                    setSelectedSuggestionIndex(-1);
+                    setSpokenTranscript(null);
+                  }}
+                  className="p-1.5 text-slate-400 hover:text-white transition rounded-xl hover:bg-slate-800"
+                  title="Effacer la recherche"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+
+              {/* Voice Search Button (Web Speech API) */}
               <button
-                onClick={() => {
-                  setSearchTerm('');
-                  setShowSuggestions(false);
-                  setSelectedSuggestionIndex(-1);
-                }}
-                className="absolute right-3.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-white transition"
-                title="Effacer la recherche"
+                type="button"
+                id="btn-voice-search"
+                onClick={toggleVoiceSearch}
+                className={`p-2 rounded-xl transition flex items-center justify-center cursor-pointer relative group ${
+                  isListening
+                    ? 'bg-red-500 text-white animate-pulse shadow-[0_0_20px_rgba(239,68,68,0.7)] ring-2 ring-red-400'
+                    : 'text-slate-400 hover:text-amber-400 hover:bg-slate-800/80'
+                }`}
+                title={isListening ? "Arrêter la recherche vocale" : "Recherche vocale : parlez pour chercher un mot"}
               >
-                <X className="w-4 h-4" />
+                {isListening ? (
+                  <div className="relative flex items-center justify-center">
+                    <MicOff className="w-4 h-4" />
+                    <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-white animate-ping" />
+                  </div>
+                ) : (
+                  <Mic className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                )}
               </button>
+            </div>
+
+            {/* Voice Recognition Active Pulse Visualizer Card */}
+            {isListening && (
+              <div 
+                id="voice-search-listening-card"
+                className="absolute left-0 right-0 top-full mt-2 z-50 bg-[#141416]/98 border-2 border-amber-500/80 rounded-2xl p-4 shadow-[0_20px_50px_rgba(245,158,11,0.3)] backdrop-blur-xl animate-fadeIn text-center space-y-3"
+              >
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
+                    <span className="text-xs font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                      <Mic className="w-3.5 h-3.5 text-red-500 animate-pulse" />
+                      <span>Recherche Vocale Active • Parlez maintenant</span>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      try {
+                        recognitionRef.current?.stop();
+                      } catch {}
+                      setIsListening(false);
+                    }}
+                    className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800"
+                    title="Fermer le micro"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Animated Audio Equalizer Waveform */}
+                <div className="flex items-center justify-center gap-1.5 h-8 py-1">
+                  <span className="w-1 bg-amber-400 rounded-full animate-bounce h-3" style={{ animationDuration: '0.6s', animationDelay: '0ms' }} />
+                  <span className="w-1 bg-amber-400 rounded-full animate-bounce h-7" style={{ animationDuration: '0.6s', animationDelay: '120ms' }} />
+                  <span className="w-1 bg-amber-400 rounded-full animate-bounce h-4" style={{ animationDuration: '0.6s', animationDelay: '240ms' }} />
+                  <span className="w-1.5 bg-red-500 rounded-full animate-bounce h-8" style={{ animationDuration: '0.6s', animationDelay: '80ms' }} />
+                  <span className="w-1 bg-amber-400 rounded-full animate-bounce h-5" style={{ animationDuration: '0.6s', animationDelay: '300ms' }} />
+                  <span className="w-1 bg-amber-400 rounded-full animate-bounce h-7" style={{ animationDuration: '0.6s', animationDelay: '160ms' }} />
+                  <span className="w-1 bg-amber-400 rounded-full animate-bounce h-3" style={{ animationDuration: '0.6s', animationDelay: '40ms' }} />
+                </div>
+
+                <div className="space-y-1">
+                  {spokenTranscript ? (
+                    <div className="p-2 rounded-xl bg-slate-900 border border-amber-500/40">
+                      <p className="text-[10px] text-slate-400 uppercase font-bold">Transcription détectée :</p>
+                      <p className="text-sm font-black text-amber-300 mt-0.5">« {spokenTranscript} »</p>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-300">
+                      Prononcez un mot de Babi (ex: <span className="text-amber-400 font-bold">« S'enjailler »</span>, <span className="text-amber-400 font-bold">« Kpata »</span>, <span className="text-amber-400 font-bold">« Boucantier »</span>, <span className="text-amber-400 font-bold">« Môgô »</span>)...
+                    </p>
+                  )}
+                  <p className="text-[10px] text-slate-500">
+                    Propulsé par la reconnaissance vocale Web Speech API
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Error Message if Microphone Permission Denied or Unsupported */}
+            {speechError && (
+              <div 
+                id="voice-search-error-toast"
+                className="absolute left-0 right-0 top-full mt-2 z-50 bg-red-950/95 border border-red-500/60 rounded-2xl p-3 text-xs text-red-200 shadow-2xl backdrop-blur-md flex items-center justify-between gap-3 animate-fadeIn"
+              >
+                <div className="flex items-center gap-2">
+                  <MicOff className="w-4 h-4 text-red-400 flex-shrink-0" />
+                  <span>{speechError}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSpeechError(null)}
+                  className="p-1 text-red-300 hover:text-white rounded-lg hover:bg-red-900/50 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
             )}
 
             {/* Menu Déroulant des Suggestions en Temps Réel */}
@@ -857,25 +1074,111 @@ export const DictionaryView: React.FC<DictionaryViewProps> = ({
           </div>
         </div>
 
-        {/* Categories Bar */}
-        <div className="mt-3 flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
-          {CATEGORIES_CONFIG.map((cat) => {
-            const isSelected = selectedCategory === cat.id;
-            return (
+        {/* Categories & Linguistic Register Bar (Argot, Verlan, Expressions, etc.) */}
+        <div className="mt-4 pt-3 border-t border-slate-800/80 space-y-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                Filtre par Catégorie & Registre Linguistique
+              </span>
+              {selectedCategory !== 'all' && (
+                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-fadeIn">
+                  {CATEGORIES_CONFIG.find(c => c.id === selectedCategory)?.label || selectedCategory}
+                </span>
+              )}
+            </div>
+
+            {selectedCategory !== 'all' && (
               <button
-                key={cat.id}
-                id={`btn-cat-${cat.id}`}
-                onClick={() => setSelectedCategory(cat.id as Category)}
-                className={`flex-shrink-0 px-3 py-1.5 rounded-xl text-xs font-medium border transition whitespace-nowrap ${
-                  isSelected
-                    ? 'bg-amber-500/15 text-amber-400 border-amber-500/40 font-bold'
-                    : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white hover:border-slate-700'
-                }`}
+                type="button"
+                onClick={() => setSelectedCategory('all')}
+                className="text-xs text-amber-400 hover:underline font-semibold flex items-center gap-1 cursor-pointer"
               >
-                {cat.label}
+                <span>Toutes les catégories</span>
               </button>
-            );
-          })}
+            )}
+          </div>
+
+          {/* Quick Highlight Linguistic Types (Argot, Verlan, Expressions) */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">Accès rapide :</span>
+            
+            <button
+              type="button"
+              id="btn-filter-argot-quick"
+              onClick={() => setSelectedCategory(selectedCategory === 'argot' ? 'all' : 'argot')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border ${
+                selectedCategory === 'argot'
+                  ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-black border-orange-400 shadow-[0_0_15px_rgba(249,115,22,0.4)]'
+                  : 'bg-orange-950/40 hover:bg-orange-900/50 text-orange-300 border-orange-800/50'
+              }`}
+            >
+              <span>⚡ Argot & Rue</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/30 font-mono">
+                {words.filter(w => isWordInNouchiCategory(w, 'argot')).length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              id="btn-filter-verlan-quick"
+              onClick={() => setSelectedCategory(selectedCategory === 'verlan' ? 'all' : 'verlan')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border ${
+                selectedCategory === 'verlan'
+                  ? 'bg-gradient-to-r from-purple-500 to-indigo-500 text-white border-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.4)]'
+                  : 'bg-purple-950/40 hover:bg-purple-900/50 text-purple-300 border-purple-800/50'
+              }`}
+            >
+              <span>🔄 Verlan & Inversions</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/30 font-mono">
+                {words.filter(w => isWordInNouchiCategory(w, 'verlan')).length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              id="btn-filter-expressions-quick"
+              onClick={() => setSelectedCategory(selectedCategory === 'expressions' ? 'all' : 'expressions')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border ${
+                selectedCategory === 'expressions'
+                  ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-black border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.4)]'
+                  : 'bg-emerald-950/40 hover:bg-emerald-900/50 text-emerald-300 border-emerald-800/50'
+              }`}
+            >
+              <span>💬 Expressions & Proverbes</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/30 font-mono">
+                {words.filter(w => isWordInNouchiCategory(w, 'expressions')).length}
+              </span>
+            </button>
+          </div>
+
+          {/* Full Horizontal Categories Scroll */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin pt-1">
+            {CATEGORIES_CONFIG.map((cat) => {
+              const isSelected = selectedCategory === cat.id;
+              const count = words.filter(w => isWordInNouchiCategory(w, cat.id)).length;
+
+              return (
+                <button
+                  key={cat.id}
+                  id={`btn-cat-${cat.id}`}
+                  onClick={() => setSelectedCategory(isSelected && cat.id !== 'all' ? 'all' : cat.id as Category)}
+                  className={`flex-shrink-0 px-3 py-1.5 rounded-xl text-xs font-medium border transition whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
+                    isSelected
+                      ? 'bg-amber-500 text-black border-amber-500 font-bold shadow-md'
+                      : 'bg-slate-900 text-slate-300 border-slate-800 hover:text-white hover:border-slate-700'
+                  }`}
+                >
+                  <span>{cat.label}</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                    isSelected ? 'bg-black/20 text-black font-black' : 'bg-slate-800 text-slate-400'
+                  }`}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -1027,7 +1330,7 @@ export const DictionaryView: React.FC<DictionaryViewProps> = ({
                           e.stopPropagation();
                           onToggleBookmark(word.id);
                         }}
-                        className={`p-2 rounded-xl border transition ${
+                        className={`p-2 rounded-xl border transition cursor-pointer ${
                           isBookmarked
                             ? 'bg-emerald-950/80 text-emerald-400 border-emerald-700'
                             : 'bg-slate-900 text-slate-500 border-slate-800 hover:text-slate-300'
@@ -1036,6 +1339,20 @@ export const DictionaryView: React.FC<DictionaryViewProps> = ({
                       >
                         {isBookmarked ? <BookmarkCheck className="w-4 h-4" /> : <Bookmark className="w-4 h-4" />}
                       </button>
+
+                      {/* Story Card Generator button */}
+                      {onOpenStoryCard && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenStoryCard(word);
+                          }}
+                          className="p-2 rounded-xl bg-slate-900 text-slate-400 border border-slate-800 hover:text-amber-400 hover:border-amber-500/40 transition cursor-pointer"
+                          title="Générer une Story HD (Statut WhatsApp / Instagram)"
+                        >
+                          <Sparkles className="w-4 h-4 text-amber-400/80" />
+                        </button>
+                      )}
 
                       {/* Edit action for admin/author */}
                       {canEdit && onEditWord && (

@@ -51,6 +51,19 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Never intercept Vite development internals, HMR, or dynamic module reloads
+  if (
+    url.pathname.startsWith('/@') ||
+    url.pathname.includes('/@vite') ||
+    url.pathname.includes('/@fs') ||
+    url.pathname.includes('/@id') ||
+    url.pathname.includes('node_modules') ||
+    url.searchParams.has('t') ||
+    url.searchParams.has('import')
+  ) {
+    return;
+  }
+
   // Strategy 1: For Navigation Requests (HTML / Page Loads)
   // Network-first, with fallback to cached index.html
   if (request.mode === 'navigate') {
@@ -84,10 +97,8 @@ self.addEventListener('fetch', (event) => {
   // Strategy 2: For Static Assets (JS, CSS, Images, Fonts, Icons)
   // Stale-While-Revalidate or Cache-First
   const isStaticAsset = (
-    url.pathname.match(/\.(js|css|png|jpg|jpeg|svg|webp|woff|woff2|ttf|json|webmanifest)$/i) ||
-    url.pathname.startsWith('/assets/') ||
-    url.pathname.startsWith('/@') ||
-    url.pathname.startsWith('/src/')
+    url.pathname.match(/\.(js|css|png|jpg|jpeg|svg|webp|woff|woff2|ttf|json|webmanifest|db)$/i) ||
+    url.pathname.startsWith('/assets/')
   );
 
   if (isStaticAsset) {

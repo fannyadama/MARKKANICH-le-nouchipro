@@ -395,6 +395,37 @@ export const ExportFavoritesModal: React.FC<ExportFavoritesModalProps> = ({
               </button>
             </div>
 
+            {/* Pack 300 Mots & Base SQLite Pro */}
+            <div className="mt-2 p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+                  <Database className="w-4 h-4" />
+                </div>
+                <div>
+                  <h5 className="text-xs font-bold text-amber-300">Pack 300 Nouveaux Mots & Base SQLite</h5>
+                  <p className="text-[11px] text-slate-400">Format compact JSON et base de données SQLite <code>dictionnaire_nouchi.db</code></p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <a
+                  href="/nouchi_300.json"
+                  download="nouchi_300.json"
+                  className="flex-1 sm:flex-none px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-amber-500/40 text-[11px] font-bold text-amber-400 flex items-center justify-center gap-1.5 transition"
+                >
+                  <FileJson className="w-3.5 h-3.5" />
+                  <span>JSON (300)</span>
+                </a>
+                <a
+                  href="/dictionnaire_nouchi.db"
+                  download="dictionnaire_nouchi.db"
+                  className="flex-1 sm:flex-none px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-bold flex items-center justify-center gap-1.5 transition"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>SQLite (.db)</span>
+                </a>
+              </div>
+            </div>
+
           </div>
 
           {/* Footer */}

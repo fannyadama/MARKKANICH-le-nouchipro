@@ -23,6 +23,7 @@ interface WordOfTheDayViewProps {
   onBookmarkToggle?: (wordId: string) => void;
   isBookmarked?: boolean;
   onOpenNotificationModal?: () => void;
+  onOpenStoryCard?: (word: NouchiWord) => void;
 }
 
 export const WordOfTheDayView: React.FC<WordOfTheDayViewProps> = ({
@@ -30,7 +31,8 @@ export const WordOfTheDayView: React.FC<WordOfTheDayViewProps> = ({
   onSelectWord,
   onBookmarkToggle,
   isBookmarked = false,
-  onOpenNotificationModal
+  onOpenNotificationModal,
+  onOpenStoryCard
 }) => {
   const [customIndex, setCustomIndex] = useState<number | null>(null);
   const [showShareMenu, setShowShareMenu] = useState(false);
@@ -242,6 +244,19 @@ export const WordOfTheDayView: React.FC<WordOfTheDayViewProps> = ({
                     Partager le Mot du Jour
                   </div>
 
+                  {onOpenStoryCard && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowShareMenu(false);
+                        onOpenStoryCard(wordOfTheDay);
+                      }}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-1.5 text-xs text-left text-amber-300 hover:bg-amber-500/15 rounded-xl transition font-bold"
+                    >
+                      <span>📸</span> Carte Story HD (PNG)
+                    </button>
+                  )}
+
                   <button
                     onClick={(e) => handleShare(e, 'whatsapp')}
                     className="w-full flex items-center gap-2.5 px-2.5 py-1.5 text-xs text-left text-emerald-400 hover:bg-emerald-500/10 rounded-xl transition font-semibold"
@@ -272,6 +287,21 @@ export const WordOfTheDayView: React.FC<WordOfTheDayViewProps> = ({
                 </div>
               )}
             </div>
+
+            {onOpenStoryCard && (
+              <button
+                type="button"
+                title="Générer une Story HD pour WhatsApp & Instagram"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenStoryCard(wordOfTheDay);
+                }}
+                className="bg-black/25 hover:bg-black/35 text-black px-2.5 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 transition shadow-sm cursor-pointer"
+              >
+                <Sparkles className="w-3 h-3 text-amber-950" />
+                <span>Story HD</span>
+              </button>
+            )}
 
             <button
               type="button"

@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dictionnaire Markkanich Nouchi 🇨🇮</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: #0f1015; color: #e2e8f0; max-width: 900px; margin: 0 auto; padding: 24px 16px; }
+        header { text-align: center; margin-bottom: 28px; }
+        h1 { color: #f59e0b; margin-bottom: 6px; font-size: 2.2rem; }
+        p.subtitle { color: #94a3b8; font-size: 0.95rem; margin-top: 0; }
+        .search-box { display: flex; gap: 10px; margin-bottom: 20px; }
+        input { flex: 1; padding: 14px 18px; background: #1a1b23; border: 2px solid #2e303e; border-radius: 12px; font-size: 16px; color: #fff; outline: none; transition: border-color 0.2s; }
+        input:focus { border-color: #f59e0b; }
+        button.search-btn { padding: 14px 24px; background: linear-gradient(135deg, #f59e0b, #ea580c); color: #000; border: none; border-radius: 12px; cursor: pointer; font-weight: bold; font-size: 16px; transition: transform 0.1s, opacity 0.2s; }
+        button.search-btn:hover { opacity: 0.95; transform: scale(1.02); }
+        .stats-badge { text-align: center; margin-bottom: 24px; color: #cbd5e1; font-size: 0.9rem; background: #1a1b23; border: 1px solid #2e303e; padding: 8px 16px; border-radius: 30px; display: inline-block; width: auto; margin-left: auto; margin-right: auto; }
+        .stats-wrapper { text-align: center; }
+        .mot-card { background: #161720; padding: 20px; border-radius: 16px; margin-bottom: 16px; box-shadow: 0 4px 14px rgba(0,0,0,0.3); border-left: 5px solid #f59e0b; border-top: 1px solid #232532; border-right: 1px solid #232532; border-bottom: 1px solid #232532; transition: transform 0.15s; }
+        .mot-card:hover { transform: translateY(-2px); }
+        .mot-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px; }
+        .mot-header h3 { margin: 0; color: #fff; font-size: 1.3rem; }
+        .prononciation { color: #f59e0b; font-style: italic; font-family: monospace; font-size: 0.9rem; margin-bottom: 10px; }
+        .categorie { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
+        .definition { color: #cbd5e1; line-height: 1.5; font-size: 0.95rem; }
+        .exemple { background: rgba(0, 0, 0, 0.3); padding: 12px 14px; border-radius: 10px; font-style: italic; color: #94a3b8; margin-top: 12px; border: 1px solid #282a3a; }
+        .exemple strong { color: #e2e8f0; font-style: normal; }
+        .origine-tag { margin-top: 8px; font-size: 0.8rem; color: #64748b; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🇨🇮 Markkanich Nouchi</h1>
+        <p class="subtitle">Le dictionnaire officiel de l'argot ivoirien • FastAPI & Client Web</p>
+    </header>
+
+    <div class="search-box">
+        <input type="text" id="searchInput" placeholder="Rechercher un mot (ex: goumin, enjailler, djê, môgô...)">
+        <button class="search-btn" onclick="chercher()">🔍 Rechercher</button>
+    </div>
+
+    <div class="stats-wrapper">
+        <div id="stats" class="stats-badge">Chargement des données...</div>
+    </div>
+    
+    <div id="results"></div>
+
+    <script>
+        // Détecte automatiquement si on tourne en local sur le même hôte ou sur Render
+        const API_URL = window.location.origin.includes('localhost') || window.location.origin.includes('run.app') 
+            ? "" 
+            : "https://markkanich-nouchi-api.onrender.com"; 
+        
+        async function init() {
+            try {
+                const stats = await fetch(API_URL + "/stats").then(r => r.json());
+                document.getElementById("stats").innerText = `📚 ${stats.total_mots || 0} mots répertoriés | 🏷️ ${stats.total_categories || 0} catégories | 🇨🇮 100% Nouchi`;
+                chargerMots();
+            } catch (e) {
+                // Fallback to local /api/dictionary
+                try {
+                    const fallback = await fetch("/api/dictionary?limit=20").then(r => r.json());
+                    document.getElementById("stats").innerText = `📚 ${fallback.total || 0} mots répertoriés (Mode Local)`;
+                    renderList(fallback.data || []);
+                } catch (err) {
+                    document.getElementById("stats").innerText = "⚠️ API en cours de connexion...";
+                }
+            }
+        }
+
+        function renderList(mots) {
+            const container = document.getElementById("results");
+            if (!mots || mots.length === 0) {
+                container.innerHTML = `<div style="text-align:center; padding: 40px; color:#64748b;">Aucun mot trouvé pour cette recherche.</div>`;
+                return;
+            }
+            container.innerHTML = mots.map(m => {
+                const mot = m.mot || m.term;
+                const pron = m.prononciation || m.phonetic || '';
+                const def = m.definition || m.frenchTranslation || '';
+                const cat = m.categorie || m.category || 'Général';
+                const ex = m.exemple || (m.examples && m.examples[0] ? m.examples[0].nouchi : '');
+                const orig = m.origine || m.originLanguage || '';
+
+                return `
+                    <div class="mot-card">
+                        <div class="mot-header">
+                            <h3>${mot}</h3>
+                            <span class="categorie">${cat}</span>
+                        </div>
+                        ${pron ? `<div class="prononciation">[ ${pron} ]</div>` : ''}
+                        <div class="definition"><strong>Définition :</strong> ${def}</div>
+                        ${ex ? `<div class="exemple">« ${ex} »</div>` : ''}
+                        ${orig ? `<div class="origine-tag">Origine : ${orig}</div>` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function chargerMots(q = "") {
+            try {
+                const endpoint = q ? `${API_URL}/mots?q=${encodeURIComponent(q)}` : `${API_URL}/mots?limite=30`;
+                const res = await fetch(endpoint);
+                const data = await res.json();
+                const list = Array.isArray(data) ? data : (data.resultats || data.data || []);
+                renderList(list);
+            } catch (e) {
+                // Fallback to local search
+                const res = await fetch(`/api/dictionary?search=${encodeURIComponent(q)}&limit=30`);
+                const data = await res.json();
+                renderList(data.data || []);
+            }
+        }
+
+        function chercher() {
+            const q = document.getElementById("searchInput").value;
+            chargerMots(q);
+        }
+
+        document.getElementById("searchInput").addEventListener("keypress", function(e) {
+            if (e.key === "Enter") chercher();
+        });
+
+        init();
+    </script>
+</body>
+</html>
