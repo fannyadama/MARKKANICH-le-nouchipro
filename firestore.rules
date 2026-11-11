@@ -1,0 +1,181 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny all unknown paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Global Hardened Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email == 'fannyadama159@gmail.com'
+      );
+    }
+
+    // --- Validation Helpers ---
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['id', 'username', 'email', 'role']) &&
+             data.keys().hasOnly(['id', 'username', 'email', 'role', 'avatar', 'plan', 'isVip', 'xp', 'level', 'streak', 'createdAt']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.username is string && data.username.size() >= 2 && data.username.size() <= 50 &&
+             data.email is string && data.email.size() <= 100 &&
+             (data.role in ['user', 'contributor', 'admin']) &&
+             (!('xp' in data) || data.xp is number) &&
+             (!('level' in data) || data.level is number) &&
+             (!('streak' in data) || data.streak is number) &&
+             (!('isVip' in data) || data.isVip is bool);
+    }
+
+    function isValidCommunityWord(data) {
+      return data.keys().hasAll(['id', 'term', 'definition', 'frenchTranslation', 'authorId', 'status']) &&
+             data.keys().hasOnly(['id', 'term', 'phonetic', 'definition', 'frenchTranslation', 'grammaticalCategory', 'originLanguage', 'category', 'difficultyLevel', 'examples', 'synonyms', 'authorId', 'authorName', 'status', 'likesCount', 'createdAt']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.term is string && data.term.size() >= 1 && data.term.size() <= 100 &&
+             data.definition is string && data.definition.size() >= 3 && data.definition.size() <= 1000 &&
+             data.frenchTranslation is string && data.frenchTranslation.size() >= 1 && data.frenchTranslation.size() <= 500 &&
+             data.authorId is string && data.authorId == request.auth.uid &&
+             (data.status in ['pending', 'approved', 'rejected']) &&
+             (!('likesCount' in data) || data.likesCount is number);
+    }
+
+    function isValidWordLike(data) {
+      return data.keys().hasAll(['id', 'wordId', 'userId']) &&
+             data.keys().hasOnly(['id', 'wordId', 'userId', 'createdAt']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.wordId is string && data.wordId.size() <= 128 &&
+             data.userId is string && data.userId == request.auth.uid;
+    }
+
+    function isValidWordComment(data) {
+      return data.keys().hasAll(['id', 'wordId', 'userId', 'content']) &&
+             data.keys().hasOnly(['id', 'wordId', 'userId', 'authorName', 'content', 'createdAt']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.wordId is string && data.wordId.size() <= 128 &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.content is string && data.content.size() >= 1 && data.content.size() <= 800;
+    }
+
+    function isValidDailyQuizScore(data) {
+      return data.keys().hasAll(['id', 'userId', 'username', 'dateStr', 'score', 'timeSeconds']) &&
+             data.keys().hasOnly(['id', 'userId', 'username', 'dateStr', 'score', 'timeSeconds', 'streak', 'createdAt']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.username is string && data.username.size() <= 50 &&
+             data.dateStr is string && data.dateStr.size() <= 15 &&
+             data.score is number && data.score >= 0 && data.score <= 10 &&
+             data.timeSeconds is number && data.timeSeconds >= 0;
+    }
+
+    // --- Collections Match Rules ---
+
+    // 1. Users Collection
+    match /users/{userId} {
+      allow get: if isSignedIn() && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      
+      allow create: if isOwner(userId) && isValidId(userId) && isValidUser(incoming()) &&
+                       incoming().id == userId &&
+                       // Prevent self-elevation to admin during sign up
+                       (incoming().role != 'admin' || isAdmin());
+
+      allow update: if (isOwner(userId) || isAdmin()) && isValidId(userId) && isValidUser(incoming()) &&
+                       incoming().id == existing().id &&
+                       // Non-admins cannot alter their role or plan privileges
+                       (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['username', 'avatar', 'xp', 'level', 'streak']));
+
+      allow delete: if isAdmin();
+    }
+
+    // 2. Admins Collection
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // 3. Community Words Collection
+    match /words/{wordId} {
+      allow get: if true;
+      allow list: if true;
+
+      allow create: if isSignedIn() && isValidId(wordId) && isValidCommunityWord(incoming()) &&
+                       incoming().id == wordId &&
+                       // Regular users create as pending; admins can auto-approve
+                       (incoming().status == 'pending' || isAdmin());
+
+      allow update: if isSignedIn() && isValidId(wordId) && (
+        isAdmin() ||
+        (
+          existing().authorId == request.auth.uid &&
+          isValidCommunityWord(incoming()) &&
+          incoming().authorId == existing().authorId &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['term', 'phonetic', 'definition', 'frenchTranslation', 'examples', 'synonyms', 'grammaticalCategory', 'originLanguage', 'category', 'difficultyLevel'])
+        ) ||
+        // Allowed like counter increment
+        (
+          incoming().diff(existing()).affectedKeys().hasOnly(['likesCount']) &&
+          incoming().likesCount is number
+        )
+      );
+
+      allow delete: if isSignedIn() && isValidId(wordId) && (isAdmin() || existing().authorId == request.auth.uid);
+    }
+
+    // 4. Word Likes Collection
+    match /word_likes/{likeId} {
+      allow get: if true;
+      allow list: if true;
+      allow create: if isSignedIn() && isValidId(likeId) && isValidWordLike(incoming()) && incoming().id == likeId;
+      allow update: if false; // Likes are immutable
+      allow delete: if isSignedIn() && isValidId(likeId) && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    // 5. Word Comments Collection
+    match /word_comments/{commentId} {
+      allow get: if true;
+      allow list: if true;
+      allow create: if isSignedIn() && isValidId(commentId) && isValidWordComment(incoming()) && incoming().id == commentId;
+      allow update: if isSignedIn() && isValidId(commentId) && existing().userId == request.auth.uid &&
+                       isValidWordComment(incoming()) &&
+                       incoming().id == existing().id &&
+                       incoming().userId == existing().userId &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['content']);
+      allow delete: if isSignedIn() && isValidId(commentId) && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    // 6. Daily Quiz Scores Collection
+    match /quiz_scores/{scoreId} {
+      allow get: if true;
+      allow list: if true;
+      allow create: if isSignedIn() && isValidId(scoreId) && isValidDailyQuizScore(incoming()) && incoming().id == scoreId;
+      allow update: if isSignedIn() && isValidId(scoreId) && existing().userId == request.auth.uid &&
+                       isValidDailyQuizScore(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['score', 'timeSeconds', 'streak']);
+      allow delete: if isAdmin();
+    }
+  }
+}

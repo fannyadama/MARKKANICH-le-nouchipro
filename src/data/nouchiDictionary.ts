@@ -1,6 +1,7 @@
 import { NouchiWord } from '../types';
+import { ADDITIONAL_NOUCHI_WORDS } from './additionalNouchiWords';
 
-export const NOUCHI_DICTIONARY: NouchiWord[] = [
+const INITIAL_NOUCHI_DICTIONARY: NouchiWord[] = [
   {
     "id": "abidjan-cest-technique",
     "term": "Abidjan, c'est technique",
@@ -9913,6 +9914,11 @@ export const NOUCHI_DICTIONARY: NouchiWord[] = [
       "Action"
     ]
   }
+];
+
+export const NOUCHI_DICTIONARY: NouchiWord[] = [
+  ...INITIAL_NOUCHI_DICTIONARY,
+  ...ADDITIONAL_NOUCHI_WORDS
 ];
 
 export const isWordInNouchiCategory = (word: NouchiWord, catId: string): boolean => {

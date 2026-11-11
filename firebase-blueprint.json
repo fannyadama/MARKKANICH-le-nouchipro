@@ -1,0 +1,111 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User account profile and gamification status",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "username": { "type": "string", "maxLength": 50 },
+        "email": { "type": "string", "maxLength": 100 },
+        "role": { "type": "string", "enum": ["admin", "contributor", "user"] },
+        "avatar": { "type": "string", "maxLength": 500 },
+        "plan": { "type": "string", "enum": ["free", "pass_express", "pro_vip", "business_api"] },
+        "isVip": { "type": "boolean" },
+        "xp": { "type": "number" },
+        "level": { "type": "number" },
+        "streak": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "username", "email", "role"]
+    },
+    "CommunityWord": {
+      "title": "Community Word",
+      "description": "Nouchi word contributed by community members",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "term": { "type": "string", "maxLength": 100 },
+        "phonetic": { "type": "string", "maxLength": 100 },
+        "definition": { "type": "string", "maxLength": 1000 },
+        "frenchTranslation": { "type": "string", "maxLength": 500 },
+        "grammaticalCategory": { "type": "string", "maxLength": 100 },
+        "originLanguage": { "type": "string", "maxLength": 100 },
+        "category": { "type": "string" },
+        "difficultyLevel": { "type": "string", "enum": ["debutant", "intermediaire", "expert"] },
+        "examples": { "type": "array" },
+        "synonyms": { "type": "array" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string", "maxLength": 50 },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "likesCount": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "term", "definition", "frenchTranslation", "authorId", "status"]
+    },
+    "WordLike": {
+      "title": "Word Like",
+      "description": "Like reaction on a nouchi word",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "wordId": { "type": "string" },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "wordId", "userId"]
+    },
+    "WordComment": {
+      "title": "Word Comment",
+      "description": "Community comment or usage context for a word",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "wordId": { "type": "string" },
+        "userId": { "type": "string" },
+        "authorName": { "type": "string", "maxLength": 50 },
+        "content": { "type": "string", "maxLength": 800 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "wordId", "userId", "content"]
+    },
+    "DailyQuizScore": {
+      "title": "Daily Quiz Score",
+      "description": "Daily 5-question community quiz score for leaderboard",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "username": { "type": "string", "maxLength": 50 },
+        "dateStr": { "type": "string", "maxLength": 15 },
+        "score": { "type": "number" },
+        "timeSeconds": { "type": "number" },
+        "streak": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "username", "dateStr", "score", "timeSeconds"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profiles and account settings"
+    },
+    "/words/{wordId}": {
+      "schema": { "$ref": "#/entities/CommunityWord" },
+      "description": "Community contributed dictionary words"
+    },
+    "/word_likes/{likeId}": {
+      "schema": { "$ref": "#/entities/WordLike" },
+      "description": "Likes on dictionary words"
+    },
+    "/word_comments/{commentId}": {
+      "schema": { "$ref": "#/entities/WordComment" },
+      "description": "User discussions and comments per word"
+    },
+    "/quiz_scores/{scoreId}": {
+      "schema": { "$ref": "#/entities/DailyQuizScore" },
+      "description": "Daily leaderboard scores"
+    }
+  }
+}

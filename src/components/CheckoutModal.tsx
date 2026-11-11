@@ -208,14 +208,14 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     onPaymentSuccess(tx, updatedUser);
   };
 
-  const checkTransactionStatus = async (refToCheck: string) => {
+  const checkTransactionStatus = async (refToCheck: string, simulatePaid: boolean = false) => {
     setIsCheckingStatus(true);
     setVerificationError(null);
     try {
       const isStripe = selectedMethod === 'stripe' || refToCheck.startsWith('cs_');
       const verifyEndpoint = isStripe
-        ? `/api/stripe/verify/${encodeURIComponent(refToCheck)}`
-        : `/api/paystack/verify/${encodeURIComponent(refToCheck)}`;
+        ? `/api/stripe/verify/${encodeURIComponent(refToCheck)}${simulatePaid ? '?simulate_paid=true' : ''}`
+        : `/api/paystack/verify/${encodeURIComponent(refToCheck)}${simulatePaid ? '?simulate_paid=true' : ''}`;
 
       const res = await fetch(verifyEndpoint);
       const data = await res.json();
@@ -328,6 +328,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       }
 
       setActiveReference(initData.reference);
+      if (initData.authorizationUrl) {
+        setPaystackAuthUrl(initData.authorizationUrl);
+      }
 
       // Check if Paystack Inline SDK (PaystackPop) is available
       const pubKey = paystackConfig?.publicKey;
@@ -354,14 +357,19 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               checkTransactionStatus(ref);
             },
             onClose: () => {
-              setIsProcessing(false);
-              setStep('details');
+              // Keep in authenticating state with action buttons available
+              console.log('Paystack inline modal closed');
             }
           });
           handler.openIframe();
+          
+          if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = setInterval(() => {
+            checkTransactionStatus(initData.reference);
+          }, 3500);
           return;
         } catch (popupErr) {
-          console.warn('Fallback standard Paystack:', popupErr);
+          console.warn('Fallback standard Paystack redirect:', popupErr);
         }
       }
 
@@ -739,6 +747,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                     </a>
                     <button
                       type="button"
+                      id="btn-verify-stripe-status"
                       onClick={() => activeReference && checkTransactionStatus(activeReference)}
                       disabled={isCheckingStatus}
                       className="py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition border border-slate-700 cursor-pointer disabled:opacity-50"
@@ -747,6 +756,46 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                       <span>Vérifier le statut</span>
                     </button>
                   </div>
+
+                  {/* Test Mode / Verification Helper for Stripe */}
+                  {isStripe && (
+                    <div className="pt-2.5 mt-2 border-t border-slate-800 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Test Stripe (Carte 4242) :</span>
+                      </div>
+                      <button
+                        type="button"
+                        id="btn-simulate-stripe-verify-success"
+                        onClick={() => activeReference && checkTransactionStatus(activeReference, true)}
+                        className="text-[11px] font-bold text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1.5 rounded-lg border border-amber-500/30 transition flex items-center gap-1 cursor-pointer"
+                        title="Valider la transaction Stripe avec confirmation test"
+                      >
+                        <Check className="w-3 h-3 text-emerald-400" />
+                        <span>Confirmer paiement test</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Test Mode / Verification Helper for Paystack */}
+                  {!isStripe && (
+                    <div className="pt-2.5 mt-2 border-t border-slate-800 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                        <Sparkles className="w-3.5 h-3.5 text-[#00C3F7]" />
+                        <span>Test Paystack (Mobile Money / Carte) :</span>
+                      </div>
+                      <button
+                        type="button"
+                        id="btn-simulate-paystack-verify-success"
+                        onClick={() => activeReference && checkTransactionStatus(activeReference, true)}
+                        className="text-[11px] font-bold text-[#00C3F7] hover:text-[#00C3F7]/80 bg-[#00C3F7]/10 hover:bg-[#00C3F7]/20 px-2.5 py-1.5 rounded-lg border border-[#00C3F7]/30 transition flex items-center gap-1 cursor-pointer"
+                        title="Valider la transaction Paystack avec simulation test"
+                      >
+                        <Check className="w-3 h-3 text-emerald-400" />
+                        <span>Confirmer paiement test Paystack</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 

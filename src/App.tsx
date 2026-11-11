@@ -7,6 +7,7 @@ import { HistoryView } from './components/HistoryView';
 import { TranslatorView } from './components/TranslatorView';
 import { QuizView } from './components/QuizView';
 import { ProverbsView } from './components/ProverbsView';
+import { BiographyView } from './components/BiographyView';
 import { PricingView } from './components/PricingView';
 import { ApiConsoleView } from './components/ApiConsoleView';
 import { AdminDashboardView } from './components/AdminDashboardView';
@@ -24,6 +25,7 @@ import { OfflineStatusBanner } from './components/OfflineStatusBanner';
 import { PronunciationStudioView } from './components/PronunciationStudioView';
 import { authAPI, wordsAPI, INITIAL_SEED_COMMENTS } from './services/api';
 import { notificationService } from './services/notificationService';
+import { subscribeToAuth, subscribeToCommunityWords, signOutUser } from './firebase';
 import { getDeterministicDailyWord } from './utils/dailyWordHelper';
 import { speakWord } from './utils/speech';
 import { hapticManager } from './utils/haptics';
@@ -252,6 +254,31 @@ export default function App() {
     }
   }, [likesMap]);
 
+  // Firebase Realtime Sync: Auth state & Community Words from Firestore
+  useEffect(() => {
+    const unsubAuth = subscribeToAuth((fbUser) => {
+      if (fbUser) {
+        setUser(fbUser);
+      }
+    });
+
+    const unsubWords = subscribeToCommunityWords((firestoreWords) => {
+      if (firestoreWords && firestoreWords.length > 0) {
+        setCustomWords((prev) => {
+          const map = new Map<string, NouchiWord>();
+          prev.forEach((w) => map.set(w.id, w));
+          firestoreWords.forEach((w) => map.set(w.id, w));
+          return Array.from(map.values());
+        });
+      }
+    });
+
+    return () => {
+      unsubAuth();
+      unsubWords();
+    };
+  }, []);
+
   // Handle Paystack Return / Redirect URL parameter verification
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -264,12 +291,13 @@ export default function App() {
           .then(data => {
             if (data.success && data.verified) {
               const invoiceNumber = `INV-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
-              const planId = (data.data?.metadata?.planId as any) || 'pro_vip';
+              const metadata = data.metadata || data.data?.metadata || {};
+              const planId = (metadata.planId as any) || 'pro_vip';
               const updatedUser: User = {
                 ...(user || {
                   id: `user-${Date.now()}`,
-                  username: data.data?.metadata?.customerName || 'Nouchiman_VIP',
-                  email: data.data?.customer?.email || 'client@nouchipro.ci',
+                  username: metadata.customerName || data.data?.customer?.email || 'Nouchiman_VIP',
+                  email: data.customer?.email || data.data?.customer?.email || 'client@nouchipro.ci',
                   role: 'user'
                 }),
                 plan: planId,
@@ -332,6 +360,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    signOutUser().catch(() => {});
     authAPI.logout();
     setUser(null);
     showToast('Déconnexion réussie');
@@ -554,6 +583,13 @@ export default function App() {
         {activeTab === 'proverbs' && <ProverbsView />}
 
         {activeTab === 'history' && <HistoryView />}
+
+        {activeTab === 'biography' && (
+          <BiographyView
+            onOpenPricing={() => setActiveTab('pricing')}
+            onNavigateTab={(tab) => setActiveTab(tab)}
+          />
+        )}
       </main>
 
       {/* Checkout Modal */}
@@ -723,15 +759,33 @@ export default function App() {
                     <Crown className="w-3.5 h-3.5 text-amber-500" /> Dashboard & Modération
                   </button>
                 </li>
+                <li>
+                  <button onClick={() => setActiveTab('biography')} className="hover:text-amber-400 transition flex items-center gap-1.5 font-bold text-amber-300">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-500" /> Fondateur : Adama F Sheickner
+                  </button>
+                </li>
               </ul>
             </div>
 
             {/* Col 3 */}
             <div>
               <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-amber-500 mb-3">
-                Communauté & Reconnaissance
+                Communauté & Vision
               </h4>
               <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('biography')}
+                  className="w-full text-left p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 hover:border-amber-500 transition flex items-center gap-2.5 text-xs text-white cursor-pointer group shadow-sm"
+                >
+                  <div className="w-8 h-8 rounded-lg overflow-hidden border border-amber-500/60 flex-shrink-0 bg-slate-950">
+                    <img src="/assets/aistudio/image_b1b89bf7.png" alt="Adama F Sheickner" className="w-full h-full object-cover object-top" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-bold text-amber-300 truncate group-hover:text-amber-200">Adama F Sheickner</p>
+                    <p className="text-[10px] text-slate-400 truncate">Fondateur & CEO Mark Kanich</p>
+                  </div>
+                </button>
                 <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 flex items-center gap-2 text-xs text-slate-300">
                   <Award className="w-4 h-4 text-emerald-400 flex-shrink-0" />
                   <span>Petit Larousse & Le Robert</span>

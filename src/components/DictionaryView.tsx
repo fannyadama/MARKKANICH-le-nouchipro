@@ -31,7 +31,11 @@ import {
   CornerDownLeft,
   Mic,
   MicOff,
-  Loader2
+  Loader2,
+  ArrowLeft,
+  ArrowRight,
+  SortAsc,
+  Layers
 } from 'lucide-react';
 import { hapticManager } from '../utils/haptics';
 
@@ -72,6 +76,7 @@ export const DictionaryView: React.FC<DictionaryViewProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedLetter, setSelectedLetter] = useState<string | null>(null);
+  const [isGroupedView, setIsGroupedView] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<Category>('all');
   const [onlyOfficial, setOnlyOfficial] = useState(false);
   const [onlyBookmarks, setOnlyBookmarks] = useState(false);
@@ -83,6 +88,10 @@ export const DictionaryView: React.FC<DictionaryViewProps> = ({
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [spokenTranscript, setSpokenTranscript] = useState<string | null>(null);
   const recognitionRef = useRef<any>(null);
+
+  const isSpeechSupported = typeof window !== 'undefined' 
+    ? Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)
+    : false;
 
   // Initialize SpeechRecognition on mount
   useEffect(() => {
@@ -115,17 +124,22 @@ export const DictionaryView: React.FC<DictionaryViewProps> = ({
             saveSearchTerm(cleanTranscript);
             setShowSuggestions(cleanTranscript.length >= 1);
             hapticManager.trigger('quiz_correct');
+            setTimeout(() => {
+              setIsListening(false);
+            }, 600);
           }
         };
 
         recognition.onerror = (event: any) => {
           console.warn('Speech recognition error:', event.error);
           if (event.error === 'not-allowed') {
-            setSpeechError('Microphone non autorisé. Veuillez activer l’accès au micro dans votre navigateur.');
+            setSpeechError('Microphone bloqué. Veuillez autoriser l’accès au micro dans votre navigateur.');
           } else if (event.error === 'no-speech') {
             setSpeechError('Aucune voix détectée. Veuillez parler plus distinctement.');
+          } else if (event.error === 'audio-capture') {
+            setSpeechError('Aucun microphone détecté sur cet appareil.');
           } else {
-            setSpeechError(`Erreur vocale (${event.error}). Réessayez.`);
+            setSpeechError(`Erreur vocale (${event.error}). Cliquez sur le micro pour réessayer.`);
           }
           setIsListening(false);
         };
@@ -165,19 +179,105 @@ export const DictionaryView: React.FC<DictionaryViewProps> = ({
         recognitionRef.current?.stop();
       } catch {}
       setIsListening(false);
-    } else {
+      return;
+    }
+
+    try {
+      let recognition = recognitionRef.current;
+      if (!recognition) {
+        recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = true;
+        recognition.lang = 'fr-FR';
+
+        recognition.onstart = () => {
+          setIsListening(true);
+          setSpeechError(null);
+          setSpokenTranscript('');
+          hapticManager.trigger('selection');
+        };
+
+        recognition.onresult = (event: any) => {
+          const current = event.resultIndex;
+          const transcript = event.results[current][0].transcript;
+          setSpokenTranscript(transcript);
+
+          if (event.results[current].isFinal) {
+            const cleanTranscript = transcript.trim().replace(/[.,!?;:]+$/, '');
+            setSearchTerm(cleanTranscript);
+            saveSearchTerm(cleanTranscript);
+            setShowSuggestions(cleanTranscript.length >= 1);
+            hapticManager.trigger('quiz_correct');
+            setTimeout(() => {
+              setIsListening(false);
+            }, 600);
+          }
+        };
+
+        recognition.onerror = (event: any) => {
+          console.warn('Speech recognition error:', event.error);
+          if (event.error === 'not-allowed') {
+            setSpeechError('Microphone non autorisé. Activez l’accès au micro dans votre navigateur.');
+          } else if (event.error === 'no-speech') {
+            setSpeechError('Aucune voix détectée. Veuillez parler plus distinctement.');
+          } else {
+            setSpeechError(`Erreur vocale (${event.error}). Réessayez.`);
+          }
+          setIsListening(false);
+        };
+
+        recognition.onend = () => {
+          setIsListening(false);
+        };
+
+        recognitionRef.current = recognition;
+      }
+
+      recognition.start();
+    } catch (err: any) {
+      console.warn('Recognition start error, attempting fresh instance:', err);
       try {
-        recognitionRef.current?.start();
-      } catch (err: any) {
-        console.warn('Recognition start error:', err);
-        try {
-          recognitionRef.current?.abort();
-          setTimeout(() => {
-            try {
-              recognitionRef.current?.start();
-            } catch {}
-          }, 200);
-        } catch {}
+        recognitionRef.current?.abort();
+      } catch {}
+      try {
+        const fresh = new SpeechRecognition();
+        fresh.continuous = false;
+        fresh.interimResults = true;
+        fresh.lang = 'fr-FR';
+        fresh.onstart = () => {
+          setIsListening(true);
+          setSpeechError(null);
+          setSpokenTranscript('');
+          hapticManager.trigger('selection');
+        };
+        fresh.onresult = (event: any) => {
+          const current = event.resultIndex;
+          const transcript = event.results[current][0].transcript;
+          setSpokenTranscript(transcript);
+          if (event.results[current].isFinal) {
+            const cleanTranscript = transcript.trim().replace(/[.,!?;:]+$/, '');
+            setSearchTerm(cleanTranscript);
+            saveSearchTerm(cleanTranscript);
+            setShowSuggestions(cleanTranscript.length >= 1);
+            hapticManager.trigger('quiz_correct');
+            setTimeout(() => setIsListening(false), 600);
+          }
+        };
+        fresh.onerror = (event: any) => {
+          if (event.error === 'not-allowed') {
+            setSpeechError('Microphone bloqué. Activez l’accès dans le navigateur.');
+          } else {
+            setSpeechError(`Erreur vocale (${event.error}).`);
+          }
+          setIsListening(false);
+        };
+        fresh.onend = () => setIsListening(false);
+        recognitionRef.current = fresh;
+        fresh.start();
+      } catch (fallbackErr) {
+        console.error('Failed to start voice search:', fallbackErr);
+        setSpeechError("Impossible de démarrer le micro. Vérifiez les autorisations de votre navigateur.");
+        setIsListening(false);
       }
     }
   };
@@ -406,7 +506,7 @@ export const DictionaryView: React.FC<DictionaryViewProps> = ({
       }
 
       return true;
-    });
+    }).sort((a, b) => a.term.localeCompare(b.term, 'fr', { sensitivity: 'base' }));
   }, [words, bookmarks, onlyBookmarks, onlyOfficial, onlyCommunity, selectedCategory, selectedLetter, searchTerm]);
 
   // Letter counts
@@ -420,6 +520,65 @@ export const DictionaryView: React.FC<DictionaryViewProps> = ({
     });
     return counts;
   }, [words]);
+
+  // Active letters having at least 1 word
+  const activeLetters = useMemo(() => {
+    return ALPHABET.filter(letter => (letterCounts[letter] || 0) > 0);
+  }, [letterCounts]);
+
+  // Grouped words by initial letter
+  const groupedWords = useMemo(() => {
+    const groups: Record<string, NouchiWord[]> = {};
+    filteredWords.forEach(word => {
+      const firstChar = word.term.normalize("NFD").replace(/[\u0300-\u036f]/g, "")[0]?.toUpperCase() || '#';
+      if (!groups[firstChar]) {
+        groups[firstChar] = [];
+      }
+      groups[firstChar].push(word);
+    });
+    return groups;
+  }, [filteredWords]);
+
+  const handlePrevLetter = () => {
+    if (!selectedLetter) {
+      if (activeLetters.length > 0) {
+        setSelectedLetter(activeLetters[activeLetters.length - 1]);
+        hapticManager.trigger('selection');
+      }
+      return;
+    }
+    const currentIndex = activeLetters.indexOf(selectedLetter);
+    if (currentIndex > 0) {
+      setSelectedLetter(activeLetters[currentIndex - 1]);
+    } else {
+      setSelectedLetter(activeLetters[activeLetters.length - 1]);
+    }
+    hapticManager.trigger('selection');
+  };
+
+  const handleNextLetter = () => {
+    if (!selectedLetter) {
+      if (activeLetters.length > 0) {
+        setSelectedLetter(activeLetters[0]);
+        hapticManager.trigger('selection');
+      }
+      return;
+    }
+    const currentIndex = activeLetters.indexOf(selectedLetter);
+    if (currentIndex !== -1 && currentIndex < activeLetters.length - 1) {
+      setSelectedLetter(activeLetters[currentIndex + 1]);
+    } else {
+      setSelectedLetter(activeLetters[0]);
+    }
+    hapticManager.trigger('selection');
+  };
+
+  const handleRandomLetter = () => {
+    if (activeLetters.length === 0) return;
+    const random = activeLetters[Math.floor(Math.random() * activeLetters.length)];
+    setSelectedLetter(random);
+    hapticManager.trigger('celebration');
+  };
 
   const handlePlayAudio = (e: React.MouseEvent, word: NouchiWord) => {
     e.stopPropagation();
@@ -436,13 +595,14 @@ export const DictionaryView: React.FC<DictionaryViewProps> = ({
   const clearAllFilters = () => {
     setSearchTerm('');
     setSelectedLetter(null);
+    setIsGroupedView(false);
     setSelectedCategory('all');
     setOnlyOfficial(false);
     setOnlyBookmarks(false);
     setOnlyCommunity(false);
   };
 
-  const hasActiveFilters = searchTerm || selectedLetter || selectedCategory !== 'all' || onlyOfficial || onlyBookmarks || onlyCommunity;
+  const hasActiveFilters = searchTerm || selectedLetter || isGroupedView || selectedCategory !== 'all' || onlyOfficial || onlyBookmarks || onlyCommunity;
 
   return (
     <div id="dictionary-view" className="space-y-6">
@@ -630,8 +790,12 @@ export const DictionaryView: React.FC<DictionaryViewProps> = ({
                   setSelectedSuggestionIndex(-1);
                 }
               }}
-              placeholder="Chercher un mot (ex: Enjailler, Kpata, Boucantier, Môgô...)"
-              className="search-input w-full pl-11 pr-24 py-3 bg-slate-900 border border-slate-700/80 rounded-2xl text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition-all"
+              placeholder={isListening ? "🎙️ Écoute active... Dictez votre mot..." : "Chercher un mot (ex: Enjailler, Kpata, Boucantier, Môgô...)"}
+              className={`search-input w-full pl-11 pr-28 py-3 bg-slate-900 border rounded-2xl text-sm text-white placeholder:text-slate-500 focus:outline-none transition-all ${
+                isListening
+                  ? 'border-amber-500 ring-2 ring-amber-500/30'
+                  : 'border-slate-700/80 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20'
+              }`}
               autoComplete="off"
             />
 
@@ -640,38 +804,50 @@ export const DictionaryView: React.FC<DictionaryViewProps> = ({
               {searchTerm && (
                 <button
                   type="button"
+                  id="btn-clear-search-term"
                   onClick={() => {
                     setSearchTerm('');
                     setShowSuggestions(false);
                     setSelectedSuggestionIndex(-1);
                     setSpokenTranscript(null);
                   }}
-                  className="p-1.5 text-slate-400 hover:text-white transition rounded-xl hover:bg-slate-800"
+                  className="p-1.5 text-slate-400 hover:text-white transition rounded-xl hover:bg-slate-800 cursor-pointer"
                   title="Effacer la recherche"
                 >
                   <X className="w-4 h-4" />
                 </button>
               )}
 
-              {/* Voice Search Button (Web Speech API) */}
+              {/* Voice Search Microphone Button (Web Speech API) */}
               <button
                 type="button"
                 id="btn-voice-search"
                 onClick={toggleVoiceSearch}
-                className={`p-2 rounded-xl transition flex items-center justify-center cursor-pointer relative group ${
+                aria-label={isListening ? "Arrêter la recherche vocale" : "Dicter un mot (Recherche vocale Web Speech)"}
+                className={`px-2.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer relative group ${
                   isListening
-                    ? 'bg-red-500 text-white animate-pulse shadow-[0_0_20px_rgba(239,68,68,0.7)] ring-2 ring-red-400'
-                    : 'text-slate-400 hover:text-amber-400 hover:bg-slate-800/80'
+                    ? 'bg-rose-600 hover:bg-rose-500 text-white animate-pulse shadow-[0_0_20px_rgba(225,29,72,0.8)] ring-2 ring-rose-400 font-bold'
+                    : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:border-amber-500/60 shadow-sm'
                 }`}
-                title={isListening ? "Arrêter la recherche vocale" : "Recherche vocale : parlez pour chercher un mot"}
+                title={isListening ? "Arrêter la dictée vocale" : "Recherche vocale Web Speech : cliquez et parlez pour chercher un mot"}
               >
                 {isListening ? (
-                  <div className="relative flex items-center justify-center">
-                    <MicOff className="w-4 h-4" />
-                    <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-white animate-ping" />
-                  </div>
+                  <>
+                    <div className="relative flex items-center justify-center">
+                      <MicOff className="w-4 h-4 text-white" />
+                      <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-white animate-ping" />
+                    </div>
+                    <span className="text-[11px] font-black uppercase tracking-wider text-white hidden sm:inline">
+                      Écoute...
+                    </span>
+                  </>
                 ) : (
-                  <Mic className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                  <>
+                    <Mic className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
+                    <span className="text-[11px] font-bold text-amber-300 hidden sm:inline">
+                      Dicter
+                    </span>
+                  </>
                 )}
               </button>
             </div>
@@ -1020,31 +1196,95 @@ export const DictionaryView: React.FC<DictionaryViewProps> = ({
         </div>
 
         {/* Alphabet Bar A - Z */}
-        <div className="mt-5 pt-4 border-t border-slate-800">
-          <div className="flex items-center justify-between gap-2 mb-2.5">
-            <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
-              Index Alphabétique A à Z
-            </span>
-            {selectedLetter && (
+        <div className="mt-5 pt-4 border-t border-slate-800 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-1.5 text-amber-400">
+                <SortAsc className="w-4 h-4" />
+                <span className="text-xs font-black uppercase tracking-[0.15em] text-slate-300">
+                  Index Alphabétique A à Z
+                </span>
+              </div>
+              <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-slate-400">
+                {activeLetters.length} / 26 lettres actives
+              </span>
+              {selectedLetter && (
+                <span className="text-[11px] font-black px-2.5 py-0.5 rounded-full bg-amber-500 text-black animate-fadeIn shadow-sm shadow-amber-500/20">
+                  Lettre « {selectedLetter} » ({letterCounts[selectedLetter] || 0})
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Random Letter */}
               <button
-                onClick={() => setSelectedLetter(null)}
-                className="text-xs text-amber-400 hover:underline font-semibold"
+                type="button"
+                id="btn-random-letter"
+                onClick={handleRandomLetter}
+                className="text-[11px] px-2.5 py-1 rounded-xl bg-slate-900 hover:bg-slate-850 text-slate-400 hover:text-amber-400 border border-slate-800 font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                title="Découvrir une lettre au hasard"
               >
-                Afficher toutes les lettres
+                <Shuffle className="w-3 h-3 text-amber-400" />
+                <span>Lettre au hasard</span>
               </button>
-            )}
+
+              {/* Grouped View Toggle */}
+              <button
+                type="button"
+                id="btn-toggle-grouped-view"
+                onClick={() => {
+                  setIsGroupedView(prev => !prev);
+                  hapticManager.trigger('selection');
+                }}
+                className={`text-[11px] px-2.5 py-1 rounded-xl border font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                  isGroupedView
+                    ? 'bg-amber-500/20 text-amber-400 border-amber-500/40 font-bold shadow-sm shadow-amber-500/20'
+                    : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                }`}
+                title={isGroupedView ? 'Désactiver le groupement par lettre' : 'Grouper les mots par sections de lettres A-Z'}
+              >
+                <Layers className="w-3 h-3" />
+                <span>{isGroupedView ? 'Vue groupée A-Z active' : 'Grouper par lettre'}</span>
+              </button>
+
+              {/* Reset letter filter if active */}
+              {selectedLetter && (
+                <button
+                  type="button"
+                  id="btn-clear-letter-filter"
+                  onClick={() => {
+                    setSelectedLetter(null);
+                    hapticManager.trigger('selection');
+                  }}
+                  className="text-xs text-amber-400 hover:underline font-semibold flex items-center gap-1 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  <span>Toutes les lettres</span>
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center gap-1.5 overflow-x-auto pb-2 scrollbar-thin">
             <button
-              onClick={() => setSelectedLetter(null)}
-              className={`flex-shrink-0 px-3 py-1.5 text-xs font-bold rounded-xl border transition ${
+              type="button"
+              id="btn-letter-all"
+              onClick={() => {
+                setSelectedLetter(null);
+                hapticManager.trigger('selection');
+              }}
+              className={`flex-shrink-0 px-3 py-1.5 text-xs font-black rounded-xl border transition flex items-center gap-1.5 cursor-pointer ${
                 selectedLetter === null
-                  ? 'bg-amber-500 text-black border-amber-500 font-bold'
+                  ? 'bg-amber-500 text-black border-amber-500 font-black shadow-[0_0_12px_rgba(245,158,11,0.35)]'
                   : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white hover:border-slate-700'
               }`}
             >
-              Tous ({words.length})
+              <span>Tous</span>
+              <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-md ${
+                selectedLetter === null ? 'bg-black/20 text-black font-bold' : 'bg-slate-800 text-slate-400'
+              }`}>
+                {words.length}
+              </span>
             </button>
 
             {ALPHABET.map((letter) => {
@@ -1055,19 +1295,30 @@ export const DictionaryView: React.FC<DictionaryViewProps> = ({
               return (
                 <button
                   key={letter}
+                  type="button"
                   id={`btn-letter-${letter}`}
                   disabled={!hasWords}
-                  onClick={() => setSelectedLetter(isSelected ? null : letter)}
-                  className={`flex-shrink-0 min-w-[34px] h-[34px] flex items-center justify-center text-xs font-bold rounded-xl border transition ${
+                  onClick={() => {
+                    setSelectedLetter(isSelected ? null : letter);
+                    hapticManager.trigger(isSelected ? 'selection' : 'celebration');
+                  }}
+                  className={`flex-shrink-0 min-w-[36px] h-[36px] px-1.5 flex flex-col items-center justify-center rounded-xl border transition cursor-pointer relative ${
                     isSelected
-                      ? 'bg-amber-500 text-black border-amber-500 font-bold shadow-[0_0_10px_rgba(245,158,11,0.3)]'
+                      ? 'bg-gradient-to-b from-amber-400 to-amber-500 text-black border-amber-400 font-black shadow-[0_0_15px_rgba(245,158,11,0.45)] ring-2 ring-amber-400/50 scale-105 z-10'
                       : hasWords
-                      ? 'bg-slate-900 text-slate-300 border-slate-800 hover:text-amber-400 hover:border-amber-500/40'
+                      ? 'bg-slate-900 text-slate-200 border-slate-800 hover:text-amber-400 hover:border-amber-500/50 hover:bg-slate-850'
                       : 'bg-slate-900/30 text-slate-700 border-transparent cursor-not-allowed opacity-30'
                   }`}
-                  title={`${letter} (${count} mot${count > 1 ? 's' : ''})`}
+                  title={hasWords ? `Lettre ${letter} : ${count} mot${count > 1 ? 's' : ''}` : `Aucun mot en ${letter}`}
                 >
-                  {letter}
+                  <span className="text-xs font-black leading-none">{letter}</span>
+                  {hasWords && (
+                    <span className={`text-[8.5px] font-mono font-bold leading-none mt-0.5 ${
+                      isSelected ? 'text-black/80' : 'text-amber-400/80'
+                    }`}>
+                      {count}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -1212,17 +1463,92 @@ export const DictionaryView: React.FC<DictionaryViewProps> = ({
         </div>
       )}
 
+      {/* Active Letter Indicator & Navigation Banner */}
+      {selectedLetter && (
+        <div 
+          id="active-letter-banner" 
+          className="bg-gradient-to-r from-amber-500/15 via-[#161618] to-orange-500/15 border border-amber-500/30 rounded-3xl p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xl animate-fadeIn"
+        >
+          <div className="flex items-center gap-3 sm:gap-4">
+            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-500 text-black font-black text-2xl sm:text-3xl flex items-center justify-center shadow-lg shadow-amber-500/30 shrink-0">
+              {selectedLetter}
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                  Index Alphabétique
+                </span>
+                <span className="text-xs text-slate-400">
+                  {filteredWords.length} mot{filteredWords.length > 1 ? 's' : ''} répertorié{filteredWords.length > 1 ? 's' : ''}
+                </span>
+              </div>
+              <h4 className="text-base sm:text-lg font-black text-white mt-0.5">
+                Mots Nouchi commençant par la lettre « {selectedLetter} »
+              </h4>
+            </div>
+          </div>
+
+          {/* Letter Navigation (Précédente / Suivante / Tout afficher) */}
+          <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
+            <button
+              type="button"
+              id="btn-prev-letter"
+              onClick={handlePrevLetter}
+              className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+              title="Lettre précédente"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Précédente</span>
+            </button>
+
+            <button
+              type="button"
+              id="btn-next-letter"
+              onClick={handleNextLetter}
+              className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+              title="Lettre suivante"
+            >
+              <span className="hidden sm:inline">Suivante</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+
+            <button
+              type="button"
+              id="btn-clear-letter-banner"
+              onClick={() => {
+                setSelectedLetter(null);
+                hapticManager.trigger('selection');
+              }}
+              className="px-3.5 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Voir tout le dictionnaire</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Results Header */}
       <div className="flex items-center justify-between px-2">
-        <div className="flex items-center gap-2">
-          <p className="text-sm font-semibold text-slate-300">
-            {filteredWords.length} terme{filteredWords.length > 1 ? 's' : ''} trouvé{filteredWords.length > 1 ? 's' : ''}
-            {selectedLetter && <span className="text-amber-400 font-bold ml-1">en "{selectedLetter}"</span>}
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="text-sm font-semibold text-slate-300 flex items-center gap-1.5">
+            <span>{filteredWords.length} terme{filteredWords.length > 1 ? 's' : ''} trouvé{filteredWords.length > 1 ? 's' : ''}</span>
+            {selectedLetter && (
+              <span className="text-amber-400 font-bold px-2 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                en « {selectedLetter} »
+              </span>
+            )}
+            {isGroupedView && !selectedLetter && (
+              <span className="text-xs font-medium px-2 py-0.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 flex items-center gap-1">
+                <Layers className="w-3 h-3 text-amber-400" />
+                <span>Groupé A-Z</span>
+              </span>
+            )}
           </p>
           {hasActiveFilters && (
             <button
               onClick={clearAllFilters}
-              className="text-xs text-rose-400 hover:underline font-medium ml-2"
+              className="text-xs text-rose-400 hover:underline font-medium ml-2 cursor-pointer"
             >
               Réinitialiser les filtres
             </button>
@@ -1234,34 +1560,230 @@ export const DictionaryView: React.FC<DictionaryViewProps> = ({
         </span>
       </div>
 
-      {/* Words Grid */}
+      {/* Words Grid or Grouped Sections */}
       {filteredWords.length === 0 ? (
         <div className="text-center py-16 bg-[#161618] border border-slate-800 rounded-3xl p-8 space-y-4">
           <BookOpen className="w-12 h-12 text-slate-600 mx-auto" />
           <div>
             <h3 className="text-lg font-bold text-slate-200">
-              Aucun mot nouchi ne correspond à vos critères
+              {selectedLetter 
+                ? `Aucun mot nouchi commençant par la lettre « ${selectedLetter} »`
+                : 'Aucun mot nouchi ne correspond à vos critères'}
             </h3>
             <p className="text-sm text-slate-400 max-w-md mx-auto mt-1">
-              Vous connaissez ce mot ? Vous pouvez l'ajouter dès maintenant à la base collaborative !
+              Vous connaissez un mot en « {selectedLetter || 'nouchi'} » ? Vous pouvez l'ajouter dès maintenant à la base collaborative !
             </p>
           </div>
           <div className="flex items-center justify-center gap-3">
             <button
               onClick={clearAllFilters}
-              className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 border border-slate-800 text-slate-300 hover:text-white"
+              className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 border border-slate-800 text-slate-300 hover:text-white cursor-pointer"
             >
               Voir tout le dictionnaire
             </button>
             <button
               onClick={onOpenAddWord}
-              className="px-4 py-2 rounded-xl text-xs font-black bg-amber-500 text-black hover:bg-amber-400"
+              className="px-4 py-2 rounded-xl text-xs font-black bg-amber-500 text-black hover:bg-amber-400 cursor-pointer"
             >
               + Ajouter ce mot
             </button>
           </div>
         </div>
+      ) : isGroupedView && !selectedLetter ? (
+        /* Grouped Alphabetical View (Sections par lettre A-Z) */
+        <div className="space-y-10">
+          {ALPHABET.filter(letter => (groupedWords[letter]?.length || 0) > 0).map(letter => {
+            const wordsInLetter = groupedWords[letter] || [];
+            return (
+              <div key={letter} id={`alphabet-group-${letter}`} className="space-y-4">
+                {/* Group Letter Header */}
+                <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 text-black font-black text-lg flex items-center justify-center shadow-lg shadow-amber-500/20">
+                      {letter}
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-white flex items-center gap-2">
+                        <span>Lettre {letter}</span>
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-amber-400">
+                          {wordsInLetter.length} mot{wordsInLetter.length > 1 ? 's' : ''}
+                        </span>
+                      </h3>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedLetter(letter);
+                      hapticManager.trigger('selection');
+                    }}
+                    className="text-xs text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 transition cursor-pointer"
+                  >
+                    <span>Filtrer sur {letter}</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* Cards for this letter */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {wordsInLetter.map((word) => {
+                    const isBookmarked = bookmarks.includes(word.id);
+                    const isAudioActive = playingId === word.id;
+                    const wordLikes = likesMap[word.id] || word.likes || [];
+                    const isLiked = user ? wordLikes.includes(user.id) : false;
+                    const commentsCount = commentsCountMap[word.id] || 0;
+                    const canEdit = !!user && (user.role === 'admin' || (word.contributedBy && word.contributedBy.id === user.id));
+
+                    return (
+                      <div
+                        key={word.id}
+                        id={`card-word-${word.id}`}
+                        onClick={() => onSelectWord(word)}
+                        className="dict-card group relative bg-[#161618] border border-slate-800 hover:border-amber-500/50 rounded-3xl p-5 sm:p-6 transition-all hover:shadow-[0_0_24px_rgba(245,158,11,0.08)] cursor-pointer flex flex-col justify-between"
+                      >
+                        <div>
+                          {/* Card Header */}
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <div className="flex flex-col">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-slate-900 text-amber-400 border border-slate-800">
+                                  {word.grammaticalCategory}
+                                </span>
+                                {word.officialStatus && (
+                                  <span className="text-[11px] font-medium px-2 py-0.5 rounded-lg bg-emerald-950/60 text-emerald-300 border border-emerald-800/60 flex items-center gap-1">
+                                    <Award className="w-3 h-3 text-emerald-400" />
+                                    {word.officialStatus}
+                                  </span>
+                                )}
+                                {word.contributedBy && (
+                                  <span className="text-[10px] font-medium px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                    @{word.contributedBy.username}
+                                  </span>
+                                )}
+                              </div>
+
+                              <h3 className="dict-word text-2xl font-bold text-white mt-2 group-hover:text-amber-400 transition tracking-tight">
+                                {word.term}
+                              </h3>
+                              {word.phonetic && (
+                                <span className="text-xs font-mono text-slate-500">
+                                  {word.phonetic}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Action buttons on card */}
+                            <div className="flex items-center gap-1">
+                              {/* Audio */}
+                              <button
+                                onClick={(e) => handlePlayAudio(e, word)}
+                                className={`p-2 rounded-xl border transition ${
+                                  isAudioActive
+                                    ? 'bg-amber-500 text-black border-amber-500 scale-110'
+                                    : 'bg-slate-900 text-slate-400 border-slate-800 hover:bg-amber-500/20 hover:text-amber-400 hover:border-amber-500/30'
+                                }`}
+                                title="Prononcer"
+                              >
+                                <Volume2 className="w-4 h-4" />
+                              </button>
+
+                              {/* Bookmark */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onToggleBookmark(word.id);
+                                }}
+                                className={`p-2 rounded-xl border transition cursor-pointer ${
+                                  isBookmarked
+                                    ? 'bg-emerald-950/80 text-emerald-400 border-emerald-700'
+                                    : 'bg-slate-900 text-slate-500 border-slate-800 hover:text-slate-300'
+                                }`}
+                                title="Favori"
+                              >
+                                {isBookmarked ? <BookmarkCheck className="w-4 h-4" /> : <Bookmark className="w-4 h-4" />}
+                              </button>
+
+                              {/* Story Card Generator button */}
+                              {onOpenStoryCard && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onOpenStoryCard(word);
+                                  }}
+                                  className="p-2 rounded-xl bg-slate-900 text-slate-400 border border-slate-800 hover:text-amber-400 hover:border-amber-500/40 transition cursor-pointer"
+                                  title="Générer une Story HD (Statut WhatsApp / Instagram)"
+                                >
+                                  <Sparkles className="w-4 h-4 text-amber-400/80" />
+                                </button>
+                              )}
+
+                              {/* Edit action for admin/author */}
+                              {canEdit && onEditWord && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onEditWord(word);
+                                  }}
+                                  className="p-2 rounded-xl bg-slate-900 text-slate-400 border border-slate-800 hover:text-amber-400 transition"
+                                  title="Modifier"
+                                >
+                                  <Edit className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Main Translation */}
+                          <p className="text-sm font-medium text-slate-200 line-clamp-2 mt-1">
+                            {word.frenchTranslation}
+                          </p>
+
+                          {/* Example Snippet */}
+                          {word.examples && word.examples[0] && (
+                            <div className="mt-3 p-3 rounded-2xl bg-slate-900/80 border border-slate-800">
+                              <p className="text-xs text-amber-100/90 italic line-clamp-2">
+                                « {word.examples[0].nouchi} »
+                              </p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Card Footer with Likes and Comments stats */}
+                        <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-500">
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onLikeWord(word.id);
+                              }}
+                              className={`inline-flex items-center gap-1 transition ${
+                                isLiked ? 'text-rose-400 font-bold' : 'hover:text-rose-400'
+                              }`}
+                            >
+                              <Heart className={`w-3.5 h-3.5 ${isLiked ? 'fill-rose-400' : ''}`} />
+                              <span>{wordLikes.length}</span>
+                            </button>
+
+                            <span className="inline-flex items-center gap-1 hover:text-slate-300">
+                              <MessageSquare className="w-3.5 h-3.5" />
+                              <span>{commentsCount}</span>
+                            </span>
+                          </div>
+
+                          <span className="inline-flex items-center gap-1 font-semibold text-amber-400 group-hover:translate-x-0.5 transition-transform">
+                            Détails <ChevronRight className="w-3.5 h-3.5" />
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       ) : (
+        /* Standard Grid View */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredWords.map((word) => {
             const isBookmarked = bookmarks.includes(word.id);

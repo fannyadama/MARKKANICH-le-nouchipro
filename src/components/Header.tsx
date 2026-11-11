@@ -26,14 +26,15 @@ import {
   Vibrate,
   VibrateOff,
   Flame,
-  Mic
+  Mic,
+  UserCheck
 } from 'lucide-react';
 import { notificationService } from '../services/notificationService';
 import { hapticManager } from '../utils/haptics';
 import { UserProfileCard } from './UserProfileCard';
 import { getProgressionData } from '../utils/progressionHelper';
 
-export type ActiveHeaderTab = 'dictionary' | 'pronunciation' | 'gamification' | 'translator' | 'admin' | 'pricing' | 'api-console' | 'quiz' | 'proverbs' | 'history';
+export type ActiveHeaderTab = 'dictionary' | 'pronunciation' | 'gamification' | 'translator' | 'admin' | 'pricing' | 'api-console' | 'quiz' | 'proverbs' | 'history' | 'biography';
 
 interface HeaderProps {
   activeTab: ActiveHeaderTab;
@@ -118,6 +119,7 @@ export const Header: React.FC<HeaderProps> = ({
     { id: 'quiz' as const, label: 'Quiz Nouchiman', icon: Trophy, badge: 'Test' },
     { id: 'proverbs' as const, label: 'Sagesses & Proverbes', icon: Quote, badge: 'Maximes' },
     { id: 'history' as const, label: 'Histoire & Essai', icon: History, badge: 'Essai' },
+    { id: 'biography' as const, label: 'Fondateur & Vision', icon: UserCheck, badge: 'CEO' },
   ];
 
   const isVip = user?.isVip || user?.plan === 'pro_vip' || user?.plan === 'business_api';

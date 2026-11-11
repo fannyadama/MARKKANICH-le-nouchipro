@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { NouchiWord, Category, DifficultyLevel, User } from '../types';
 import { wordsAPI } from '../services/api';
 import { speakWord } from '../utils/speech';
+import { db, auth } from '../firebase';
+import { doc, setDoc } from 'firebase/firestore';
 import { 
   X, 
   Plus, 
@@ -149,7 +151,34 @@ export const AddWordModal: React.FC<AddWordModalProps> = ({
         response = await wordsAPI.create(payload);
       }
 
-      onWordAdded(response.data.data as NouchiWord);
+      const savedWord = response.data.data as NouchiWord;
+
+      // Sync to Firestore if authenticated or online
+      try {
+        const cleanId = (savedWord.id || `word_${Date.now()}`).slice(0, 120);
+        await setDoc(doc(db, 'words', cleanId), {
+          id: cleanId,
+          term: savedWord.term,
+          phonetic: savedWord.phonetic || '',
+          definition: savedWord.definition,
+          frenchTranslation: savedWord.frenchTranslation,
+          grammaticalCategory: savedWord.grammaticalCategory || 'Argot urbain',
+          originLanguage: savedWord.originLanguage || 'Nouchi',
+          category: savedWord.category || 'argot',
+          difficultyLevel: savedWord.difficultyLevel || 'debutant',
+          examples: savedWord.examples || [],
+          synonyms: savedWord.synonyms || [],
+          authorId: auth.currentUser?.uid || user?.id || 'guest',
+          authorName: auth.currentUser?.displayName || user?.username || 'Môgô',
+          status: user?.role === 'admin' ? 'approved' : 'pending',
+          likesCount: 0,
+          createdAt: new Date().toISOString()
+        }, { merge: true });
+      } catch (fsErr) {
+        console.log('[Firebase] Local word saved, Firestore deferred:', fsErr);
+      }
+
+      onWordAdded(savedWord);
       onClose();
     } catch (err: any) {
       setError(err?.message || 'Erreur lors de la sauvegarde du mot.');
